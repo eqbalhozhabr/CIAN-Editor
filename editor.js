@@ -5,7 +5,7 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const q = new URLSearchParams(location.search);
-  const ASSETS = '../assets/';
+  let ASSETS = '../assets/';   // next to the game (this page lives at <game>/editor/), or the editor folder's own ./assets/ when it is self-contained
   const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const clone = (v) => JSON.parse(JSON.stringify(v));
   const loadScript = (src) => new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('Could not load ' + src)); document.head.appendChild(s); });
@@ -36,7 +36,13 @@
   const S = { room: null, moment: '', time: '', sel: null, scale: 5, snap: 0.25, tab: 'insp', libKind: 'objects', libQ: '' };
   let publishOther = () => {}, publish = () => {};
 
-  fetch(ASSETS + 'editor-manifest.json', { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error('assets/editor-manifest.json: ' + r.status); return r.json(); }).then(async (man) => {
+  const getManifest = async () => {
+    for (const base of ['assets/', '../assets/']) {
+      try { const r = await fetch(base + 'editor-manifest.json', { cache: 'no-cache' }); if (r.ok) { ASSETS = base; return await r.json(); } } catch (e) { /* try the next place */ }
+    }
+    throw new Error('editor-manifest.json not found (looked in ./assets/ and ../assets/): the game build writes it');
+  };
+  getManifest().then(async (man) => {
     MAN = man;
     const entry = man.cases.find((c) => c.slug === q.get('case')) || man.cases[0];
     renderCases(entry && entry.slug);

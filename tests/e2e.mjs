@@ -15,8 +15,8 @@ const load = () => {
 };
 const { chromium } = load();
 fs.mkdirSync('out/shots', { recursive: true });
-if (!process.env.NO_ASSEMBLE) execSync('node scripts/assemble.mjs', { stdio: 'inherit' });
-const BASE = '/case-in-a-nutshell/', ROOT = path.resolve('out/site');
+if (!process.env.NO_ASSEMBLE && !process.env.SITE_ROOT) execSync('node scripts/assemble.mjs', { stdio: 'inherit' });
+const BASE = '/case-in-a-nutshell/', ROOT = path.resolve(process.env.SITE_ROOT || 'out/site');   // SITE_ROOT: a folder laid out like the site's public/case-in-a-nutshell/ (with editor/ in it)
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png' };
 const server = http.createServer((req, res) => {   // the assembled folder, mounted under /case-in-a-nutshell/ like the studio site does
   let p = decodeURIComponent(req.url.split('?')[0]);
@@ -44,7 +44,7 @@ fs.writeFileSync('out/shots/off.png', png(30, 30, (x, y) => ((x - 15) ** 2 + (y 
 const browser = await chromium.launch();
 let failed = 0;
 const ok = (cond, msg) => { if (cond) console.log('  ok  ', msg); else { failed++; console.log('  FAIL', msg); } };
-const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets/editor-manifest.json'), 'utf8'));
+const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, fs.existsSync(path.join(ROOT, 'editor/assets/editor-manifest.json')) ? 'editor/assets/editor-manifest.json' : 'assets/editor-manifest.json'), 'utf8'));
 const open = async (ctx, url) => {
   const pg = await ctx.newPage(), errors = [];
   pg.on('pageerror', (e) => errors.push(e.message));
@@ -137,11 +137,13 @@ await pg.click('#ivCancel');
 await pg.click('#bSave');
 const draft = await pg.evaluate(() => JSON.parse(localStorage.getItem('nutshell.draft.monday-nine')));
 ok(draft && draft.sprites && draft.sprites['my-tree'] && draft.rooms.living.objects.some((r) => r.look && r.look.sprite === 'my-tree'), 'Save draft keeps the layout and the sprite it uses in this browser');
-const popup = ctx.waitForEvent('page'); await pg.click('#bPlay'); const game = await popup;
-await game.waitForLoadState('load'); await game.waitForTimeout(800);
-const gs = await game.evaluate(() => ({ room: NUT.S.room, plant: ROOMS.living.objects.find((o) => o.id === 'plant5').t }));
-ok(gs.plant === 'sprite' && gs.room === 'living', 'Play from here opens the game in this room, drawing the draft');
-await game.close();
+if (!process.env.NO_PLAY) {   // (the game that is already live does not know ?layout=draft yet)
+  const popup = ctx.waitForEvent('page'); await pg.click('#bPlay'); const game = await popup;
+  await game.waitForLoadState('load'); await game.waitForTimeout(800);
+  const gs = await game.evaluate(() => ({ room: NUT.S.room, plant: ROOMS.living.objects.find((o) => o.id === 'plant5').t }));
+  ok(gs.plant === 'sprite' && gs.room === 'living', 'Play from here opens the game in this room, drawing the draft');
+  await game.close();
+}
 const dl = pg.waitForEvent('download'); await pg.click('#bPub'); await pg.waitForSelector('#dlg[open]'); await pg.click('#pGo');
 let text = ''; for await (const ch of await (await dl).createReadStream()) text += ch;
 let parsed = null; try { parsed = JSON.parse(text); } catch (e) { /* reported below */ }

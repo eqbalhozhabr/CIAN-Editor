@@ -18,4 +18,11 @@ fs.cpSync(path.join(game, 'dist'), out, { recursive: true });
 fs.mkdirSync(path.join(out, 'editor'), { recursive: true });
 for (const f of ['index.html', 'editor.js', 'store.js', 'importer.js']) fs.copyFileSync(path.join(here, f), path.join(out, 'editor', f));
 for (const f of ['library', 'editor-config.json']) if (fs.existsSync(path.join(here, f))) fs.cpSync(path.join(here, f), path.join(out, 'editor', f), { recursive: true });   // shared sprites, and the publishing server's address when there is one
+// and the editor on its own: a folder that carries the few game files it needs, so it can be dropped into the site without touching the game's own files
+const solo = path.join(path.dirname(out), 'editor');
+fs.rmSync(solo, { recursive: true, force: true }); fs.mkdirSync(path.join(solo, 'assets'), { recursive: true });
+for (const f of ['index.html', 'editor.js', 'store.js', 'importer.js']) fs.copyFileSync(path.join(here, f), path.join(solo, f));
+for (const f of ['library', 'editor-config.json']) if (fs.existsSync(path.join(here, f))) fs.cpSync(path.join(here, f), path.join(solo, f), { recursive: true });
+for (const f of fs.readdirSync(path.join(game, 'dist', 'assets'))) if (f === 'engine.js' || f === 'editor-manifest.json' || /^case-.*\.js$/.test(f)) fs.copyFileSync(path.join(game, 'dist', 'assets', f), path.join(solo, 'assets', f));
+console.log('self-contained editor folder:', path.relative(process.cwd(), solo));
 console.log('assembled', path.relative(process.cwd(), out) || '.');
