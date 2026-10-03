@@ -38,5 +38,9 @@ const big = I.process(img(200, 200, (x, y) => ((x - 100) ** 2 + (y - 100) ** 2 <
 ok(!big.ok && big.notes.some((n) => n.level === 'error' && /bigger than 120/.test(n.text)), 'a picture bigger than the room is refused');
 const keep = I.process(img(10, 10, (x, y) => ((x - 5) ** 2 + (y - 5) ** 2 < 12 ? [255, 0, 255, 255] : [0, 0, 0, 0])), 10, 10, { palette: null });
 ok(keep.notes.some((n) => n.level === 'warn' && /not locked/.test(n.text)), 'keeping the original colours is flagged');
+const tile = I.process(img(8, 8, (x, y) => ((x + y) % 2 ? [0x4f, 0x9a, 0x5b, 255] : [0x7c, 0xc0, 0x7a, 255])), 8, 8, { palette: ['#4f9a5b', '#7cc07a'], tile: true });
+ok(tile.ok && tile.w === 8 && tile.h === 8 && !tile.notes.some((n) => /background|Cropped/.test(n.text)), 'a tile keeps its whole square: no background removal, no crop');
+const holes = I.process(img(8, 8, (x) => (x === 0 ? [0, 0, 0, 0] : [10, 10, 10, 255])), 8, 8, { palette: null, tile: true });
+ok(!holes.ok && holes.notes.some((n) => /must be solid/.test(n.text)), 'a tile with transparent pixels is refused');
 console.log(bad ? `\n${bad} failure(s)` : '\nimporter ok');
 process.exit(bad ? 1 : 0);

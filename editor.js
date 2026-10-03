@@ -131,7 +131,7 @@
       if (fullPanels !== false) { renderInsp(); renderChecks(c); renderState(); }
       $('momentL').hidden = !(S.room === sceneId && (CASE.moments || []).length);
       const u = new URLSearchParams({ case: slug, room: S.room }); history.replaceState(null, '', '?' + u);
-      if (fullPanels !== false) { renderCases(slug); if (S.tab === 'lib') fillLib(); }
+      if (fullPanels !== false) { renderCases(slug); if (S.tab === 'lib') fillLib(); if (S.tab === 'room') renderRoomTab(); }
     }
     $('cases').addEventListener('click', (e) => {   // a room of this case switches in place; a room of another case is a plain link (a new page load)
       const a = e.target.closest('.rooms a'), el = a && a.closest('.case');
@@ -151,7 +151,7 @@
     }
     function afterChange() { reapply(); render(); queueSave(); }
     const queueSave = () => { clearTimeout(saveT); saveT = setTimeout(saveDraft, 400); renderState(true); };
-    function usedSprites() { const used = new Set(); for (const R of Object.values(doc.rooms)) { for (const r of (R.objects || []).concat(R.wall || [])) { if (r.look && r.look.sprite) used.add(r.look.sprite); if (r.props && r.props.sprite && !r.deleted) used.add(r.props.sprite); } } return used; }
+    function usedSprites() { const used = new Set(); for (const R of Object.values(doc.rooms)) { for (const r of (R.objects || []).concat(R.wall || [])) { if (r.look && r.look.sprite) used.add(r.look.sprite); if (r.props && r.props.sprite && !r.deleted) used.add(r.props.sprite); } for (const k of ['floor', 'wallL', 'wallR']) if (R.room && R.room[k] && R.room[k].sprite) used.add(R.room[k].sprite); } return used; }
     function fileDoc() {
       const d = clone(doc); d.sprites = {}; for (const id of usedSprites()) { const sp = NUT_SPRITES.get(id); if (sp) { const c = Object.assign({}, sp); delete c.id; d.sprites[id] = c; } }
       if (!Object.keys(d.sprites).length) delete d.sprites;
@@ -316,6 +316,33 @@
       else if (a === 'png') { const o = selObj(); const t = NUT_LIBRARY.thumb(origType(o), { w: o.w, d: o.d, props: { face: o.face, dir: o.dir, back: o.back } }); if (t) downloadPng(`${origType(o)}-${o.w}x${o.d}-anchor${t.ax}_${t.ay}.png`, t.rgba, t.w, t.h, 8); }
     }
 
+    /* ---------- the Room tab: floor, walls, colours ---------- */
+    function setRoomLook(patch, spriteId) {
+      if (spriteId) { doc.sprites = doc.sprites || {}; doc.sprites[spriteId] = lib.sprites[spriteId]; }
+      mutate((E) => E.setRoom(S.room, patch));
+    }
+    const pv = (v) => (!v ? '' : typeof v === 'string' ? v : 'sprite:' + v.sprite), unpv = (v) => (!v ? null : v.startsWith('sprite:') ? { sprite: v.slice(7) } : v);
+    function renderRoomTab() {
+      const el = $('p-room'), room = ROOMS[S.room], gen = room.__gen || room, spec = NUT_LAYOUT.roomSpec(room), rs = (doc.rooms[S.room] && doc.rooms[S.room].room) || {};
+      const tiles = Object.keys(lib.sprites).filter((id) => lib.sprites[id].tile);
+      const sel = (name, kinds, cur, built) => `<select data-r="${name}"><option value="">as built (${esc(built || 'code of its own')})</option>${kinds.map((k) => `<option value="${k}"${pv(cur) === k ? ' selected' : ''}>${k}</option>`).join('')}${tiles.map((id) => `<option value="sprite:${esc(id)}"${pv(cur) === 'sprite:' + id ? ' selected' : ''}>tile: ${esc(lib.sprites[id].name || id)}</option>`).join('')}</select>`;
+      const hex = (v) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v.toLowerCase() : '#000000');
+      el.innerHTML = `<h3>Floor and walls of ${esc(S.room)}</h3>
+        ${spec.custom ? '<div class="note">This room was written by hand: its floor and walls are code of their own, and "as built" keeps them. You can still put another floor or wall over them.</div>' : ''}
+        <div class="row"><label>floor</label>${sel('floor', NUT_LAYOUT.FLOORS, rs.floor, spec.floor)}</div>
+        <div class="row"><label>left wall</label>${sel('wallL', NUT_LAYOUT.WALLS, rs.wallL, spec.wallL)}</div>
+        <div class="row"><label>right wall</label>${sel('wallR', NUT_LAYOUT.WALLS, rs.wallR, spec.wallR)}</div>
+        <div class="note">A floor change keeps the rug where it is (a case may hide something under it). Tiles come from the Library: add an image and choose "a floor or wall tile".</div>
+        <h3>Colours</h3><div class="note">Every colour the room is made of. A changed one is marked; the arrow takes it back.</div>
+        <div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr))">${(spec.custom ? Object.keys(gen.pal) : NUT_LAYOUT.ROOM_COLOURS).map((k) => { const mine = rs.pal && rs.pal[k], cur = mine || gen.pal[k]; return `<div class="row" style="margin:2px 0"><input type="color" data-c="${k}" value="${hex(cur)}"><span title="${k}">${k}${mine ? ' *' : ''}</span>${mine ? `<button data-cr="${k}" title="back to the colour the kit chose">&larr;</button>` : ''}</div>`; }).join('')}</div>
+        <div class="row"><button data-a="resetroom" ${doc.rooms[S.room] && doc.rooms[S.room].room ? '' : 'disabled'}>Back to the kit's floor, walls and colours</button></div>
+        <h3>Size</h3><div class="note">The size of the room (${room.nx || 8} x ${room.ny || 8} tiles) cannot be changed here yet: moving the walls means moving every door, window and object with them.</div>`;
+      for (const s2 of el.querySelectorAll('select[data-r]')) s2.onchange = () => { const v = unpv(s2.value); setRoomLook({ [s2.dataset.r]: v }, v && v.sprite); };
+      for (const c of el.querySelectorAll('input[data-c]')) c.onchange = () => mutate((E) => E.setRoom(S.room, { pal: { [c.dataset.c]: c.value } }));
+      for (const b of el.querySelectorAll('button[data-cr]')) b.onclick = () => mutate((E) => E.setRoom(S.room, { pal: { [b.dataset.cr]: null } }));
+      el.querySelector('[data-a=resetroom]').onclick = () => mutate((E) => { const r = (doc.rooms[S.room] || {}).room || {}; return E.setRoom(S.room, { floor: null, wallL: null, wallR: null, pal: Object.fromEntries(Object.keys(r.pal || {}).map((k) => [k, null])) }); });
+    }
+
     /* ---------- the Library tab ---------- */
     const thumbCache = {};
     function cardCanvas(key, make) { const cv = document.createElement('canvas'); cv.width = 1; cv.height = 1; try { const t = thumbCache[key] || (thumbCache[key] = make()); if (t) drawRGBA(cv, t.rgba, t.w, t.h); } catch (e) { /* a type that cannot draw alone: an empty card */ } return cv; }
@@ -350,6 +377,10 @@
         if (!ids.length) grid.innerHTML = '<p class="note">No sprites yet. "Add an image" runs a picture through the pixel-art check and puts it here.</p>';
         for (const id of ids) {
           const s = lib.sprites[id];
+          if (s.tile) { card((s.name || id) + ' (tile)', cardCanvas('s:' + id + s.px.length, () => spriteThumb(id)), [
+            ['Floor', () => setRoomLook({ floor: { sprite: id } }, id), false, 'Use as the floor of this room'], ['Wall L', () => setRoomLook({ wallL: { sprite: id } }, id)], ['Wall R', () => setRoomLook({ wallR: { sprite: id } }, id)],
+            ['PNG', () => downloadPng(id + '.png', NUT_SPRITES.toRGBA(s), s.w, s.h, 8)],
+            ['Delete', () => { if (confirm('Remove this tile from the library? Layouts that use it keep their own copy.')) { delete lib.sprites[id]; NutStore.saveLibrary(lib); renderLib(); } }]]); continue; }
           card(s.name || id, cardCanvas('s:' + id + s.px.length, () => spriteThumb(id)), [
             ['Add', () => addObject({ type: 'sprite', footprint: s.fp, hot: null, props: { sprite: id }, look: null, sprite: id })],
             ['Use', () => useSprite(id), !(canObj || canWall), 'Give the selected object or wall item this picture'],
@@ -390,19 +421,26 @@
       try { src = await NutImporter.decode(file); } catch (e) { alert(e.message); return; }
       const palette = Object.values(BASE_PAL).filter((c) => /^#[0-9a-f]{6}$/i.test(c)).map((c) => c.toLowerCase());
       const o = selObj(), w = S.sel && S.sel.kind === 'wall';
-      let res = null, lock = true;
+      let res = null, lock = true, kind = 'object';
       const nm = file.name.replace(/\.[a-z0-9]+$/i, '').replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 24) || 'image';
       dlg.innerHTML = `<h2>Add an image to the library</h2><div class="pv"><div><div class="note">your picture, in the game's colours</div><canvas id="ivA"></canvas></div></div><ul class="w" id="ivN"></ul>
         <div class="row"><label>name</label><input type="text" id="ivName" value="${esc(nm)}"><label><input type="checkbox" id="ivLock" checked> lock colours to the game palette</label></div>
+        <div class="row"><label>this is</label><label><input type="radio" name="ivKind" value="object" checked> an object</label><label><input type="radio" name="ivKind" value="tile"> a floor or wall tile (repeats)</label></div>
         <div class="row"><label>footprint</label><input type="number" step="0.25" min="0.25" id="ivW"><input type="number" step="0.25" min="0.25" id="ivD"><label>anchor</label><input type="number" id="ivAx"><input type="number" id="ivAy"><label><input type="checkbox" id="ivOut"> has its own outline</label></div>
-        <div class="note">The anchor is the floor point under the middle of the footprint (the green mark). Move it until the object stands where its diamond is.</div>
+        <div class="note" id="ivHelp"></div>
         <div class="row" id="ivAck" hidden><label><input type="checkbox" id="ivOk"> I have read the warnings: add it anyway</label></div>
         <div class="foot"><button id="ivCancel">Cancel</button><button id="ivAdd" class="primary">Add to library</button>${o || w ? '<button id="ivUse" class="primary">Add and use</button>' : ''}</div>`;
       const draw = () => {
         const cv = $('ivA'), k = Math.max(1, Math.floor(260 / Math.max(res.w, res.h))); cv.width = res.w * k; cv.height = res.h * k;
         const t = document.createElement('canvas'); t.width = res.w; t.height = res.h; t.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(res.rgba), res.w, res.h), 0, 0);
         const x = cv.getContext('2d'); x.imageSmoothingEnabled = false; x.drawImage(t, 0, 0, cv.width, cv.height);
+        if (kind === 'tile') {   // the tile repeated 3 x 3
+          cv.width = res.w * 3 * k; cv.height = res.h * 3 * k; const x2 = cv.getContext('2d'); x2.imageSmoothingEnabled = false;
+          for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) x2.drawImage(t, i * res.w * k, j * res.h * k, res.w * k, res.h * k);
+        }
         const fw = Number($('ivW').value) || 1, fd = Number($('ivD').value) || 1, ax = Number($('ivAx').value), ay = Number($('ivAy').value);
+        if (kind === 'tile') { $('ivN').innerHTML = res.notes.map((n) => `<li class="${n.level}">${esc(n.text)}</li>`).join(''); const warnT = res.notes.some((n) => n.level === 'warn'); $('ivAck').hidden = !warnT; $('ivAdd').disabled = !res.ok || (warnT && !$('ivOk').checked); if ($('ivUse')) $('ivUse').hidden = true; return; }
+        if ($('ivUse')) $('ivUse').hidden = false;
         x.strokeStyle = '#7bd88f'; x.lineWidth = 2; x.beginPath();   // the footprint's diamond around the anchor
         const hw = HW * k, hh = HH * k, c = [ax * k, ay * k], pts = [[c[0] + (fd - fw) / 2 * hw, c[1] - (fw + fd) / 2 * hh], [c[0] + (fw + fd) / 2 * hw, c[1] + (fw - fd) / 2 * hh], [c[0] + (fw - fd) / 2 * hw, c[1] + (fw + fd) / 2 * hh], [c[0] - (fw + fd) / 2 * hw, c[1] + (fd - fw) / 2 * hh]];
         pts.forEach((p, i) => (i ? x.lineTo(p[0], p[1]) : x.moveTo(p[0], p[1]))); x.closePath(); x.stroke(); x.beginPath(); x.arc(c[0], c[1], 3, 0, 7); x.stroke();
@@ -411,22 +449,25 @@
         $('ivAck').hidden = !warn; $('ivAdd').disabled = !res.ok || (warn && !$('ivOk').checked); if ($('ivUse')) $('ivUse').disabled = $('ivAdd').disabled;
       };
       const run = (keep) => {
-        res = NutImporter.process(src.rgba, src.w, src.h, { palette: lock ? palette : null });
+        res = NutImporter.process(src.rgba, src.w, src.h, { palette: lock ? palette : null, tile: kind === 'tile' });
+        $('ivHelp').textContent = kind === 'tile' ? 'A tile repeats across the floor (the footprint is how many tiles of floor one picture covers) or along a wall (1 picture pixel = 1 screen pixel). It must be solid, 64 x 64 or less.' : 'The anchor is the floor point under the middle of the footprint (the green mark). Move it until the object stands where its diamond is.';
+        for (const i of ['ivAx', 'ivAy', 'ivOut']) $(i).disabled = kind === 'tile';
         if (!res.ok) { $('ivN').innerHTML = res.notes.map((n) => `<li class="${n.level}">${esc(n.text)}</li>`).join(''); $('ivAdd').disabled = true; if ($('ivUse')) $('ivUse').disabled = true; $('ivA').width = 1; return; }
         if (!keep) { $('ivW').value = res.defaults.fp[0]; $('ivD').value = res.defaults.fp[1]; $('ivAx').value = res.defaults.ax; $('ivAy').value = res.defaults.ay; }
         draw();
       };
       dlg.showModal(); run(false);
       $('ivLock').onchange = () => { lock = $('ivLock').checked; run(true); };
+      for (const r of dlg.querySelectorAll('input[name=ivKind]')) r.onchange = () => { kind = r.value; run(false); };
       for (const i of ['ivW', 'ivD', 'ivAx', 'ivAy', 'ivOk']) $(i).oninput = () => res && res.ok && draw();
       $('ivCancel').onclick = () => dlg.close();
       const add = (use) => {
         const name = $('ivName').value.trim() || nm; let id = name.replace(/[^a-z0-9-]/gi, '-').toLowerCase(), n = 1; while (lib.sprites[id]) id = name.replace(/[^a-z0-9-]/gi, '-').toLowerCase() + '-' + (++n);
         let spec;
-        try { spec = NUT_SPRITES.fromRGBA(res.rgba, res.w, res.h, { name, ax: Number($('ivAx').value), ay: Number($('ivAy').value), fp: [Number($('ivW').value) || 1, Number($('ivD').value) || 1], outline: !$('ivOut').checked, tags: ['uploaded'], ...(lock ? {} : { offPalette: true }) }); } catch (e) { alert(e.message); return; }
+        try { spec = NUT_SPRITES.fromRGBA(res.rgba, res.w, res.h, kind === 'tile' ? { name, ax: 0, ay: 0, fp: [Number($('ivW').value) || 1, Number($('ivD').value) || 1], tile: true, outline: false, tags: ['uploaded', 'tile'], ...(lock ? {} : { offPalette: true }) } : { name, ax: Number($('ivAx').value), ay: Number($('ivAy').value), fp: [Number($('ivW').value) || 1, Number($('ivD').value) || 1], outline: !$('ivOut').checked, tags: ['uploaded'], ...(lock ? {} : { offPalette: true }) }); } catch (e) { alert(e.message); return; }
         lib.sprites[id] = spec; NUT_SPRITES.add({ [id]: spec }); NutStore.saveLibrary(lib);
         dlg.close(); delete thumbCache['s:' + id + spec.px.length];
-        if (use) useSprite(id); else { S.libKind = 'sprites'; setTab('lib'); }
+        if (use && kind !== 'tile') useSprite(id); else { S.libKind = 'sprites'; setTab('lib'); }
         renderLib();
       };
       $('ivAdd').onclick = () => add(false); if ($('ivUse')) $('ivUse').onclick = () => add(true);
@@ -480,7 +521,7 @@
     };
 
     /* ---------- the toolbar ---------- */
-    function setTab(t) { S.tab = t; for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.t === t); for (const p of document.querySelectorAll('.pane')) p.classList.toggle('on', p.id === 'p-' + t); if (t === 'lib') renderLib(); if (t === 'hist') renderHist(); }
+    function setTab(t) { S.tab = t; for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.t === t); for (const p of document.querySelectorAll('.pane')) p.classList.toggle('on', p.id === 'p-' + t); if (t === 'lib') renderLib(); if (t === 'hist') renderHist(); if (t === 'room') renderRoomTab(); }
     for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => setTab(b.dataset.t);
     $('bUndo').onclick = doUndo; $('bRedo').onclick = doRedo;
     $('bRot').onclick = () => { const o = selObj(); if (o) mutate((E) => E.rotate(S.room, o.id)); };

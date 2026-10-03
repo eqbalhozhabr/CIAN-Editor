@@ -110,15 +110,22 @@
     let cur = { rgba: Uint8ClampedArray.from(rgba), w, h };
     const s = opts.flat === false ? 1 : detectScale(cur.rgba, w, h);
     if (s > 1) { cur = downscale(cur.rgba, w, h, s); say('info', `Enlarged pixel art found (${s}x): taken down to ${cur.w} x ${cur.h} real pixels.`); }
-    else if (w > 64 || h > 64) say('warn', 'No pixel grid found: this looks like a smooth image, not pixel art. Resizing it is not done for you; draw or scale it down to the game\'s pixel size first.');
-    const bg = floodBackground(cur.rgba, cur.w, cur.h);
-    if (bg) say('info', `The background was one flat colour; ${bg} pixels were made transparent.`);
-    const c = cropOpaque(cur.rgba, cur.w, cur.h);
-    if (!c) return { ok: false, notes: [{ level: 'error', text: 'The picture has no visible pixels.' }] };
-    if (c.w !== cur.w || c.h !== cur.h) say('info', `Cropped to the visible part: ${c.w} x ${c.h}.`);
-    cur = c;
-    if (cur.w > MAX_SIDE || cur.h > MAX_SIDE) say('error', `${cur.w} x ${cur.h} is bigger than ${MAX_SIDE} pixels: the whole room is 176 x 164. Make it smaller.`);
-    else if (cur.w > 64 || cur.h > 80) say('warn', `${cur.w} x ${cur.h} is large for one object (the sofa is about 60 x 40).`);
+    else if (!opts.tile && (w > 64 || h > 64)) say('warn', 'No pixel grid found: this looks like a smooth image, not pixel art. Resizing it is not done for you; draw or scale it down to the game\'s pixel size first.');
+    if (opts.tile) {   // a floor or wall tile repeats: no background to remove, nothing to crop, and no holes
+      let holes = 0; for (let i = 3; i < cur.rgba.length; i += 4) { if (cur.rgba[i] < 128) holes++; else cur.rgba[i] = 255; }
+      if (holes) say('error', `A tile must be solid: ${holes} of its pixels are transparent.`);
+      if (cur.w > 64 || cur.h > 64) say('error', `A tile of ${cur.w} x ${cur.h} is too big: use 64 x 64 or less (it repeats across the room).`);
+      else if (cur.w < 4 || cur.h < 4) say('warn', `A tile of ${cur.w} x ${cur.h} is very small.`);
+    } else {
+      const bg = floodBackground(cur.rgba, cur.w, cur.h);
+      if (bg) say('info', `The background was one flat colour; ${bg} pixels were made transparent.`);
+      const c = cropOpaque(cur.rgba, cur.w, cur.h);
+      if (!c) return { ok: false, notes: [{ level: 'error', text: 'The picture has no visible pixels.' }] };
+      if (c.w !== cur.w || c.h !== cur.h) say('info', `Cropped to the visible part: ${c.w} x ${c.h}.`);
+      cur = c;
+      if (cur.w > MAX_SIDE || cur.h > MAX_SIDE) say('error', `${cur.w} x ${cur.h} is bigger than ${MAX_SIDE} pixels: the whole room is 176 x 164. Make it smaller.`);
+      else if (cur.w > 64 || cur.h > 80) say('warn', `${cur.w} x ${cur.h} is large for one object (the sofa is about 60 x 40).`);
+    }
     let stats = null, snapped = null;
     if (opts.palette) {
       snapped = snapPalette(cur.rgba, opts.palette, MAX_COLOURS); stats = snapped.stats; cur = Object.assign({}, cur, { rgba: snapped.rgba });
@@ -129,7 +136,7 @@
       if (n > MAX_COLOURS) say('error', `${n} colours: a sprite holds at most ${MAX_COLOURS}. Lock to the game palette or reduce them.`);
       else say('warn', `Colours kept as they are (${n}). The image is not locked to the game palette and will look out of place next to it.`);
     }
-    return { ok: !notes.some((n) => n.level === 'error'), rgba: cur.rgba, w: cur.w, h: cur.h, scale: s, stats, notes, defaults: defaults(cur.w, cur.h) };
+    return { ok: !notes.some((n) => n.level === 'error'), rgba: cur.rgba, w: cur.w, h: cur.h, scale: s, stats, notes, defaults: opts.tile ? { fp: [1, 1], ax: 0, ay: 0 } : defaults(cur.w, cur.h) };
   }
 
   /* browser only: a File -> { rgba, w, h } */

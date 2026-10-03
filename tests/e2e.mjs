@@ -39,6 +39,7 @@ const png = (w, h, fn) => {   // a PNG from a pixel function
 // a pixel-art tree, 12 x 16 real pixels, drawn 4 times larger on a flat white background (an "enlarged" image the pipeline must take apart)
 fs.writeFileSync('out/shots/tree.png', png(48, 64, (x, y) => { const px = x >> 2, py = y >> 2, dx = px - 6, dy = py - 5; if (dx * dx + dy * dy <= 20) return (px + py) % 3 ? [0x4f, 0x9a, 0x5b, 255] : [0x7c, 0xc0, 0x7a, 255]; if (px >= 5 && px <= 6 && py >= 9 && py <= 14) return [0x6b, 0x4a, 0x3a, 255]; return [255, 255, 255, 255]; }));
 // a picture in colours the game does not use, on a transparent background
+fs.writeFileSync('out/shots/tile.png', png(16, 16, (x, y) => ((x >> 2) + (y >> 2)) % 2 ? [0x8b, 0x5a, 0x3b, 255] : [0xb9, 0x80, 0x4d, 255]));
 fs.writeFileSync('out/shots/off.png', png(30, 30, (x, y) => ((x - 15) ** 2 + (y - 15) ** 2 < 100 ? [255, 0, 255, 255] : [0, 0, 0, 0])));
 
 const browser = await chromium.launch();
@@ -134,14 +135,36 @@ await pg.waitForSelector('#dlg[open]'); await pg.uncheck('#ivLock');
 ok(/not locked to the game palette/.test(await pg.innerText('#ivN')) && await pg.isDisabled('#ivAdd') && await pg.isVisible('#ivAck'), 'an image kept off the game palette needs an explicit OK');
 await pg.click('#ivCancel');
 
+// the room itself: floor, walls, colours, and a tile picture of your own
+await pg.click('.tabs button[data-t=room]');
+const room0 = await API((A) => Array.from(out).filter((v, i) => i % 7 === 0).join(','));
+await pg.selectOption('#p-room select[data-r=floor]', 'tiles');
+ok(await API((A) => A.doc.rooms.living.room.floor === 'tiles') && (await API((A) => Array.from(out).filter((v, i) => i % 7 === 0).join(','))) !== room0, 'another floor: the room changes and the choice is in the layout');
+await pg.selectOption('#p-room select[data-r=wallL]', 'brick');
+ok(await API((A) => A.doc.rooms.living.room.wallL === 'brick'), 'another wall style');
+await pg.$eval('#p-room input[data-c=floorA]', (e) => { e.value = '#00ff88'; e.dispatchEvent(new Event('change', { bubbles: true })); });
+ok(await API((A) => A.doc.rooms.living.room.pal.floorA === '#00ff88') && (await pg.isVisible('#p-room button[data-cr=floorA]')), 'a colour changes and is marked');
+await pg.keyboard.press('Control+z'); await pg.keyboard.press('Control+z'); await pg.keyboard.press('Control+z');
+ok(await API((A) => !(A.doc.rooms.living && A.doc.rooms.living.room && A.doc.rooms.living.room.floor)), 'Undo takes the floor choice back');
+await pg.click('.tabs button[data-t=lib]'); await pg.selectOption('#libK', 'sprites');
+const chT = pg.waitForEvent('filechooser'); await pg.click('#libUp'); await (await chT).setFiles('out/shots/tile.png');
+await pg.waitForSelector('#dlg[open]'); await pg.check('input[name=ivKind][value=tile]');
+ok(/Colours locked/.test(await pg.innerText('#ivN')) && !(await pg.isDisabled('#ivAdd')), 'a floor tile goes through the same pixel-art check (no crop, no background)');
+await pg.fill('#ivName', 'my floor'); await pg.click('#ivAdd');
+await pg.fill('#libQ', ''); await pg.click('#libGrid .card:has-text("my floor") button:text-is("Floor")');
+ok(await API((A) => A.doc.rooms.living.room.floor.sprite === 'my-floor' && !!A.doc.sprites['my-floor']), 'the tile becomes the floor of the room, and the layout carries the picture');
+await pg.screenshot({ path: 'out/shots/editor-room.png' });
+await pg.click('.tabs button[data-t=room]'); await pg.click('#p-room [data-a=resetroom]');
+ok(await API((A) => !(A.doc.rooms.living.room)), 'one click takes the room back to what the kit built');
+await pg.click('.tabs button[data-t=lib]'); await pg.fill('#libQ', ''); await pg.click('#libGrid .card:has-text("my floor") button:text-is("Floor")');
 await pg.click('#bSave');
 const draft = await pg.evaluate(() => JSON.parse(localStorage.getItem('nutshell.draft.monday-nine')));
-ok(draft && draft.sprites && draft.sprites['my-tree'] && draft.rooms.living.objects.some((r) => r.look && r.look.sprite === 'my-tree'), 'Save draft keeps the layout and the sprite it uses in this browser');
+ok(draft && draft.sprites && draft.sprites['my-tree'] && draft.sprites['my-floor'] && draft.rooms.living.objects.some((r) => r.look && r.look.sprite === 'my-tree') && draft.rooms.living.room.floor.sprite === 'my-floor', 'Save draft keeps the layout and the pictures it uses in this browser');
 if (!process.env.NO_PLAY) {   // (the game that is already live does not know ?layout=draft yet)
   const popup = ctx.waitForEvent('page'); await pg.click('#bPlay'); const game = await popup;
   await game.waitForLoadState('load'); await game.waitForTimeout(800);
-  const gs = await game.evaluate(() => ({ room: NUT.S.room, plant: ROOMS.living.objects.find((o) => o.id === 'plant5').t }));
-  ok(gs.plant === 'sprite' && gs.room === 'living', 'Play from here opens the game in this room, drawing the draft');
+  const gs = await game.evaluate(() => ({ room: NUT.S.room, plant: ROOMS.living.objects.find((o) => o.id === 'plant5').t, floor: (NUT_LAYOUT.state.shipped, JSON.parse(localStorage.getItem('nutshell.draft.monday-nine')).rooms.living.room.floor.sprite) }));
+  ok(gs.plant === 'sprite' && gs.room === 'living' && gs.floor === 'my-floor', 'Play from here opens the game in this room, drawing the draft (objects and the floor)');
   await game.close();
 }
 const dl = pg.waitForEvent('download'); await pg.click('#bPub'); await pg.waitForSelector('#dlg[open]'); await pg.click('#pGo');
