@@ -135,6 +135,22 @@ await pg.waitForSelector('#dlg[open]'); await pg.uncheck('#ivLock');
 ok(/not locked to the game palette/.test(await pg.innerText('#ivN')) && await pg.isDisabled('#ivAdd') && await pg.isVisible('#ivAck'), 'an image kept off the game palette needs an explicit OK');
 await pg.click('#ivCancel');
 
+// the layout at one moment of the case
+await pg.click('.tabs button[data-t=insp]');
+await pg.selectOption('#moment', 'noor'); await pg.check('#onlyM');
+const chair0 = await API((A) => { const o = ROOMS.living.objects.find((q) => q.id === 'chair1'); return [o.x, o.y]; });
+await API((A) => { A.S.sel = { kind: 'obj', id: 'chair1' }; A.render(); });
+await pg.keyboard.press('ArrowDown');
+const chairNoor = await cellOf('chair1'), chairBase = await API((A) => { const o = ROOMS.living.objects.find((q) => q.id === 'chair1'); return [o.x, o.y]; });
+ok(chairNoor[0] !== chair0[0] && chairBase.join() === chair0.join(), 'with "only this moment" a move changes that moment and leaves the shared layout alone');
+ok(await API((A) => A.doc.rooms.living.times.noor.objects[0].id === 'chair1'), 'and is stored under the moment');
+await pg.selectOption('#moment', 'scene'); ok((await cellOf('chair1')).join() === chair0.join(), 'at another moment the chair is where it was');
+await pg.click('.tabs button[data-t=chk]'); ok(/what changed/.test(await pg.innerText('#p-chk')), 'the checks notice that the "what changed" puzzle now has another difference');
+await pg.selectOption('#moment', 'noor'); await pg.click('.tabs button[data-t=insp]');
+ok(/This moment has its own change/.test(await pg.innerText('#p-insp')), 'the inspector says this moment has its own change for it');
+await pg.click('#p-insp button[data-a=takeback]'); ok(await API((A) => !A.doc.rooms.living.times), 'Take it back leaves no trace in the layout');
+await pg.keyboard.press('ArrowDown'); await pg.uncheck('#onlyM'); await pg.keyboard.press('Control+z'); await pg.check('#onlyM'); await pg.keyboard.press('Control+z');
+await pg.uncheck('#onlyM'); await pg.selectOption('#moment', 'sofia');
 // the room itself: floor, walls, colours, and a tile picture of your own
 await pg.click('.tabs button[data-t=room]');
 const room0 = await API((A) => Array.from(out).filter((v, i) => i % 7 === 0).join(','));

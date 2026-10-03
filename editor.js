@@ -129,7 +129,7 @@
       const c = checks(cur.r);
       drawRoom(); drawOver(); drawRef();
       if (fullPanels !== false) { renderInsp(); renderChecks(c); renderState(); }
-      $('momentL').hidden = !(S.room === sceneId && (CASE.moments || []).length);
+      $('momentL').hidden = !(S.room === sceneId && (CASE.moments || []).length); $('onlyL').hidden = $('momentL').hidden; if ($('onlyL').hidden) S.only = false;
       const u = new URLSearchParams({ case: slug, room: S.room }); history.replaceState(null, '', '?' + u);
       if (fullPanels !== false) { renderCases(slug); if (S.tab === 'lib') fillLib(); if (S.tab === 'room') renderRoomTab(); }
     }
@@ -141,9 +141,13 @@
 
     /* ---------- editing ---------- */
     const key = () => JSON.stringify(doc);
-    function mutate(fn) {
+    // edits to objects go to the shared layout, or to the moment on screen when "only this moment" is ticked; walls, floors and size are the same at every time
+    const momentMode = () => !!(S.only && S.room === sceneId && (CASE.moments || []).some((m) => m.id === S.moment));
+    const scoped = (base) => (!base && momentMode() ? ed().at(S.moment) : ed());
+    const baseObj = (id) => ROOMS[S.room].objects.find((o) => o.id === id), baseItem = (id) => (ROOMS[S.room].items || []).find((o) => o.id === id);
+    function mutate(fn, base) {
       const before = key();
-      const ok = fn(ed());
+      const ok = fn(scoped(base));
       if (ok === false) return false;
       if (key() === before) return false;
       undo.push(before); if (undo.length > 200) undo.shift(); redo = [];
@@ -151,7 +155,7 @@
     }
     function afterChange() { reapply(); render(); queueSave(); }
     const queueSave = () => { clearTimeout(saveT); saveT = setTimeout(saveDraft, 400); renderState(true); };
-    function usedSprites() { const used = new Set(); for (const R of Object.values(doc.rooms)) { for (const r of (R.objects || []).concat(R.wall || [])) { if (r.look && r.look.sprite) used.add(r.look.sprite); if (r.props && r.props.sprite && !r.deleted) used.add(r.props.sprite); } for (const k of ['floor', 'wallL', 'wallR']) if (R.room && R.room[k] && R.room[k].sprite) used.add(R.room[k].sprite); } return used; }
+    const usedSprites = () => NUT_LAYOUT.spritesUsed(doc);
     function fileDoc() {
       const d = clone(doc); d.sprites = {}; for (const id of usedSprites()) { const sp = NUT_SPRITES.get(id); if (sp) { const c = Object.assign({}, sp); delete c.id; d.sprites[id] = c; } }
       if (!Object.keys(d.sprites).length) delete d.sprites;
@@ -208,8 +212,8 @@
       S.sel = hit; hover = 0;
       if (hit) {
         const f = floorAt(p);
-        if (hit.kind === 'obj') { const o = selObj(); drag = { kind: 'obj', f, cell: [o.x, o.y], moved: false, before: key() }; }
-        else if (hit.kind === 'item') { const it = cur.r.items.find((i) => i.id === hit.id), host = cur.r.objects.find((o) => o.id === it.on); drag = host ? { kind: 'item', f, off: [it.x - host.x, it.y - host.y], moved: false, before: key() } : null; }
+        if (hit.kind === 'obj') { const o = momentMode() ? selObj() : (baseObj(hit.id) || selObj()); drag = { kind: 'obj', f, cell: [o.x, o.y], moved: false, before: key() }; }
+        else if (hit.kind === 'item') { const it = momentMode() ? cur.r.items.find((i) => i.id === hit.id) : (baseItem(hit.id) || cur.r.items.find((i) => i.id === hit.id)), host = momentMode() ? cur.r.objects.find((o) => o.id === it.on) : (baseObj(it.on) || cur.r.objects.find((o) => o.id === it.on)); drag = host ? { kind: 'item', f, off: [it.x - host.x, it.y - host.y], moved: false, before: key() } : null; }
         else { const w = wallList.find((i) => i.key === hit.id); drag = { kind: 'wall', u: wallU(w, p), span: [w.u0, w.u1], moved: false, before: key() }; }
         if (drag) { $('stage').setPointerCapture(e.pointerId); $('stage').classList.add('drag'); }
       }
@@ -221,8 +225,9 @@
       if (drag) {
         const sel = S.sel, snap = e.shiftKey ? 0.05 : S.snap; let did = false;
         const run = () => {
-          if (sel.kind === 'obj') { const f = floorAt(p); did = ed().move(S.room, sel.id, [drag.cell[0] + f[0] - drag.f[0], drag.cell[1] + f[1] - drag.f[1]], snap); }
-          else if (sel.kind === 'item') { const f = floorAt(p); did = ed().moveItem(S.room, sel.id, [drag.off[0] + f[0] - drag.f[0], drag.off[1] + f[1] - drag.f[1]], 0.05); }
+          const E = sel.kind !== 'wall' && momentMode() ? ed().at(S.moment) : ed();
+          if (sel.kind === 'obj') { const f = floorAt(p); did = E.move(S.room, sel.id, [drag.cell[0] + f[0] - drag.f[0], drag.cell[1] + f[1] - drag.f[1]], snap); }
+          else if (sel.kind === 'item') { const f = floorAt(p); did = E.moveItem(S.room, sel.id, [drag.off[0] + f[0] - drag.f[0], drag.off[1] + f[1] - drag.f[1]], 0.05); }
           else { const w = wallList.find((i) => i.key === sel.id), d = wallU(w, p) - drag.u; did = ed().moveWall(S.room, sel.id, [Math.round((drag.span[0] + d) * 4) / 4, Math.round((drag.span[1] + d) * 4) / 4]); }
         };
         run();
@@ -247,11 +252,14 @@
       const sel = S.sel;
       if (!sel) h += '<p class="note">Nothing selected. Click an object, a small item or a wall item in the picture, or pick one from the lists below.</p>';
       if (sel && sel.kind === 'obj') {
-        const o = selObj();
+        const o = momentMode() ? selObj() : (baseObj(sel.id) || selObj());
         if (o) {
           const why = lockWhy(S.room, o.id, o.hot), locked = why.length > 0, flat = NUT_LAYOUT.FLAT.has(o.t);
+          const mm = S.room === sceneId && (CASE.moments || []).length ? ed().at(S.moment) : null, others = Object.keys(((doc.rooms[S.room] || {}).times) || {}).filter((k) => k !== S.moment && ed().at(k).has(S.room, o.id));
+          const scope = !mm ? '' : momentMode() ? `<div class="note">Editing <b>only at ${esc(S.moment)}</b>: the change is kept for this moment, every other time keeps the shared layout.${mm.has(S.room, o.id) ? ` <b>&#9733; This moment has its own change for it.</b> <button data-a="takeback" data-id="${esc(o.id)}">Take it back</button>` : ''}</div>` : `<div class="note">Editing the shared layout (every time).${mm.has(S.room, o.id) ? ` At ${esc(S.moment)} it has a change of its own, so edits here will not show at that moment.` : ''}${others.length ? ` Moments with their own change for it: ${esc(others.join(', '))}.` : ''}</div>`;
           h += `<h3>Object</h3><div class="row"><b>${esc(o.id)}</b><span class="badge ${locked ? 'locked' : 'free'}">${locked ? 'locked' : 'free'}</span>${flat ? '<span class="badge flat">flat</span>' : ''}</div>
             <div class="note">type ${esc(origType(o))}${o.t === 'sprite' ? ' &rarr; drawn as sprite ' + esc(o.sprite) : (o.was ? ' &rarr; drawn as ' + esc(o.t) : '')}${o.hot ? ' &middot; tap name "' + esc(o.hot) + '"' : ' &middot; not tappable'}</div>
+            ${scope}
             ${locked ? `<div class="note">Locked because: ${esc(why.map((w) => ({ puzzle: 'a puzzle or lock depends on it', zoom: 'it has a zoom view the game draws', patched: 'a moment of the case changes it' }[w] || w)).join('; '))}. Place and facing can change; what it is cannot.</div>` : ''}
             <div class="row"><label>cell x,y</label><input type="number" step="0.05" data-f="cx" value="${+o.x.toFixed(3)}"><input type="number" step="0.05" data-f="cy" value="${+o.y.toFixed(3)}"></div>
             <div class="row"><label>size</label><input type="number" step="0.05" min="0.1" data-f="fw" value="${+o.w.toFixed(3)}" ${locked ? 'disabled' : ''}><input type="number" step="0.05" min="0.1" data-f="fd" value="${+o.d.toFixed(3)}" ${locked ? 'disabled' : ''}></div>
@@ -286,8 +294,13 @@
             <h3>Look</h3>${why.length ? '<div class="note">Locked: a door or board the game uses.</div>' : `<div class="row"><button data-a="tolib">Pick from the library</button><button data-a="upload">Replace with my image&hellip;</button><button data-a="reset">Back to original</button></div><div class="note">A sprite is stretched to the item's size (1 pixel = 1/10 tile wide).</div>`}`;
         }
       }
+      if (S.room === sceneId && (CASE.moments || []).length) {
+        const t = (((doc.rooms[S.room] || {}).times) || {})[S.moment], ids2 = t ? (t.objects || []).map((p) => p.id + (p.deleted ? ' (taken out)' : '')).concat((t.items || []).map((p) => p.id), (t.added || []).map((p) => p.id + ' (new)')) : [];
+        const raw = t ? (t.objects || []).map((p) => p.id).concat((t.items || []).map((p) => p.id), (t.added || []).map((p) => p.id)) : [];
+        h += `<h3>At ${esc(S.moment)}</h3>` + (ids2.length ? ids2.map((label, i) => `<div class="row"><span>&#9733; ${esc(label)}</span><button data-a="takeback" data-id="${esc(raw[i])}">Take back</button></div>`).join('') + '<div class="row"><button data-a="resetmoment">Take back all</button></div>' : '<div class="note">This moment adds nothing to the shared layout, apart from what the case itself changes. Tick "only this moment" and edit to give it differences of its own.</div>');
+      }
       const gone = (rm.objects || []).filter((x) => x.deleted);
-      h += '<h3>Objects in this room</h3><table>' + cur.r.objects.map((o, i) => `<tr class="row2${S.sel && S.sel.kind === 'obj' && S.sel.id === o.id ? ' on' : ''}" data-k="obj" data-id="${esc(o.id)}"><td>${NUT_LAYOUT.FLAT.has(o.t) ? '' : i + 1}</td><td>${esc(o.id)}</td><td><span class="badge ${lockWhy(S.room, o.id, o.hot).length ? 'locked' : 'free'}">${lockWhy(S.room, o.id, o.hot).length ? 'locked' : 'free'}</span></td></tr>`).join('') + '</table>';
+      h += '<h3>Objects in this room</h3><table>' + cur.r.objects.map((o, i) => `<tr class="row2${S.sel && S.sel.kind === 'obj' && S.sel.id === o.id ? ' on' : ''}" data-k="obj" data-id="${esc(o.id)}"><td>${NUT_LAYOUT.FLAT.has(o.t) ? '' : i + 1}</td><td>${S.room === sceneId && (CASE.moments || []).length && ed().at(S.moment).has(S.room, o.id) ? '&#9733; ' : ''}${esc(o.id)}</td><td><span class="badge ${lockWhy(S.room, o.id, o.hot).length ? 'locked' : 'free'}">${lockWhy(S.room, o.id, o.hot).length ? 'locked' : 'free'}</span></td></tr>`).join('') + '</table>';
       if (r.items.length) h += '<h3>Small items</h3><table>' + r.items.map((o) => `<tr class="row2${S.sel && S.sel.kind === 'item' && S.sel.id === o.id ? ' on' : ''}" data-k="item" data-id="${esc(o.id)}"><td>${esc(o.id)}</td><td>${esc(o.on || '-')}</td></tr>`).join('') + '</table>';
       h += '<h3>Wall items</h3><table>' + wallList.map((w) => `<tr class="row2${S.sel && S.sel.kind === 'wall' && S.sel.id === w.key ? ' on' : ''}" data-k="wall" data-id="${esc(w.key)}"><td>${esc(w.name)}</td><td>${w.wall}</td></tr>`).join('') + '</table>';
       if (gone.length) h += '<h3>Removed from this room</h3>' + gone.map((g) => `<div class="row"><span>${esc(g.id)}</span><button data-a="restore" data-id="${esc(g.id)}">Put back</button></div>`).join('');
@@ -303,14 +316,16 @@
         if (f === 'fw' || f === 'fd') return E.resize(S.room, sel.id, [v('fw'), v('fd')]);
         if (f === 'ix' || f === 'iy') return E.moveItem(S.room, sel.id, [v('ix'), v('iy')], 0.05);
         if (f === 'wu') { const w = wallList.find((i) => i.key === sel.id), d = v('wu') - w.u0; return E.moveWall(S.room, sel.id, [w.u0 + d, w.u1 + d]); }
-      });
+      }, f === 'wu');
     }
     function act(a, data) {
       const sel = S.sel;
       if (a === 'rot') mutate((E) => E.rotate(S.room, sel.id));
       else if (a === 'del') { mutate((E) => E.remove(S.room, sel.id)); S.sel = null; render(); }
       else if (a === 'restore') mutate((E) => E.restore(S.room, data.id));
-      else if (a === 'reset') mutate((E) => (sel.kind === 'wall' ? E.lookWall(S.room, sel.id, null) : E.look(S.room, sel.id, null)));
+      else if (a === 'reset') mutate((E) => (sel.kind === 'wall' ? E.lookWall(S.room, sel.id, null) : E.look(S.room, sel.id, null)), sel.kind === 'wall');
+      else if (a === 'takeback') mutate(() => ed().at(S.moment).clear(S.room, data.id), true);
+      else if (a === 'resetmoment') { if (confirm('Take back everything this moment changes? The shared layout stays.')) mutate(() => ed().at(S.moment).clear(S.room), true); }
       else if (a === 'tolib') setTab('lib');
       else if (a === 'upload') pickFile((f) => importDialog(f, true));
       else if (a === 'png') { const o = selObj(); const t = NUT_LIBRARY.thumb(origType(o), { w: o.w, d: o.d, props: { face: o.face, dir: o.dir, back: o.back } }); if (t) downloadPng(`${origType(o)}-${o.w}x${o.d}-anchor${t.ax}_${t.ay}.png`, t.rgba, t.w, t.h, 8); }
@@ -319,7 +334,7 @@
     /* ---------- the Room tab: floor, walls, colours ---------- */
     function setRoomLook(patch, spriteId) {
       if (spriteId) { doc.sprites = doc.sprites || {}; doc.sprites[spriteId] = lib.sprites[spriteId]; }
-      mutate((E) => E.setRoom(S.room, patch));
+      mutate((E) => E.setRoom(S.room, patch), true);
     }
     const pv = (v) => (!v ? '' : typeof v === 'string' ? v : 'sprite:' + v.sprite), unpv = (v) => (!v ? null : v.startsWith('sprite:') ? { sprite: v.slice(7) } : v);
     function renderRoomTab() {
@@ -336,6 +351,7 @@
         <h3>Colours</h3><div class="note">Every colour the room is made of. A changed one is marked; the arrow takes it back.</div>
         <div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr))">${(spec.custom ? Object.keys(gen.pal) : NUT_LAYOUT.ROOM_COLOURS).map((k) => { const mine = rs.pal && rs.pal[k], cur = mine || gen.pal[k]; return `<div class="row" style="margin:2px 0"><input type="color" data-c="${k}" value="${hex(cur)}"><span title="${k}">${k}${mine ? ' *' : ''}</span>${mine ? `<button data-cr="${k}" title="back to the colour the kit chose">&larr;</button>` : ''}</div>`; }).join('')}</div>
         <div class="row"><button data-a="resetroom" ${doc.rooms[S.room] && doc.rooms[S.room].room ? '' : 'disabled'}>Back to the kit's floor, walls and colours</button></div>
+        ${S.room === sceneId && (CASE.moments || []).length ? '<div class="note">Floor, walls, colours and size are the same at every moment.</div>' : ''}
         <h3>Size</h3>
         <div class="row"><label>right wall</label><input type="number" min="${NUT_LAYOUT.MIN_SIDE}" max="${NUT_LAYOUT.MAX_SIDE}" step="1" id="szX" value="${room.nx || 8}"><span>tiles</span><label>left wall</label><input type="number" min="${NUT_LAYOUT.MIN_SIDE}" max="${NUT_LAYOUT.MAX_SIDE}" step="1" id="szY" value="${room.ny || 8}"><span>tiles</span><button data-a="size">Resize</button></div>
         <div class="row"><label><input type="checkbox" id="szF" ${S.follow === false ? '' : 'checked'}> move what stands by the far walls along with them</label></div>
@@ -343,11 +359,11 @@
       el.querySelector('[data-a=size]').onclick = () => {
         const x = Number($('szX').value), y = Number($('szY').value); S.follow = $('szF').checked;
         if (!NUT_LAYOUT.validSize(x, y)) { $('szNote').style.color = '#ff4a3c'; $('szNote').textContent = `${x} x ${y} does not fit: whole tiles, ${NUT_LAYOUT.MIN_SIDE} to ${NUT_LAYOUT.MAX_SIDE} a side and ${NUT_LAYOUT.MAX_SUM} or less in all.`; return; }
-        mutate((E) => E.resizeRoom(S.room, [x, y], { follow: S.follow }));
+        mutate((E) => E.resizeRoom(S.room, [x, y], { follow: S.follow }), true);
       };
       for (const s2 of el.querySelectorAll('select[data-r]')) s2.onchange = () => { const v = unpv(s2.value); setRoomLook({ [s2.dataset.r]: v }, v && v.sprite); };
-      for (const c of el.querySelectorAll('input[data-c]')) c.onchange = () => mutate((E) => E.setRoom(S.room, { pal: { [c.dataset.c]: c.value } }));
-      for (const b of el.querySelectorAll('button[data-cr]')) b.onclick = () => mutate((E) => E.setRoom(S.room, { pal: { [b.dataset.cr]: null } }));
+      for (const c of el.querySelectorAll('input[data-c]')) c.onchange = () => mutate((E) => E.setRoom(S.room, { pal: { [c.dataset.c]: c.value } }), true);
+      for (const b of el.querySelectorAll('button[data-cr]')) b.onclick = () => mutate((E) => E.setRoom(S.room, { pal: { [b.dataset.cr]: null } }), true);
       el.querySelector('[data-a=resetroom]').onclick = () => mutate((E) => { const r = (doc.rooms[S.room] || {}).room || {}; return E.setRoom(S.room, { floor: null, wallL: null, wallR: null, pal: Object.fromEntries(Object.keys(r.pal || {}).map((k) => [k, null])) }); });   // (the size has its own button)
     }
 
@@ -398,12 +414,12 @@
       }
       if (k === 'paints') for (const p of cat.paints) {
         if (qq && !p.includes(qq)) continue;
-        card(p, cardCanvas('p:' + p, () => { try { return NUT_LIBRARY.paintThumb(ITEM_PAINT[p](), 24, 40); } catch (e) { return null; } }), [['Use', () => mutate((E) => E.lookWall(S.room, S.sel.id, { paint: p })), !canWall, 'Repaint the selected wall item']]);
+        card(p, cardCanvas('p:' + p, () => { try { return NUT_LIBRARY.paintThumb(ITEM_PAINT[p](), 24, 40); } catch (e) { return null; } }), [['Use', () => mutate((E) => E.lookWall(S.room, S.sel.id, { paint: p }), true), !canWall, 'Repaint the selected wall item']]);
       }
     }
     function useSprite(id) {
       doc.sprites = doc.sprites || {}; doc.sprites[id] = lib.sprites[id];
-      mutate((E) => (S.sel.kind === 'wall' ? E.lookWall(S.room, S.sel.id, { sprite: id }) : E.look(S.room, S.sel.id, { sprite: id })));
+      mutate((E) => (S.sel.kind === 'wall' ? E.lookWall(S.room, S.sel.id, { sprite: id }) : E.look(S.room, S.sel.id, { sprite: id })), S.sel.kind === 'wall');
     }
     function addObject(spec) {
       const { r } = cur, nx = r.nx || 8, ny = r.ny || 8, fp = spec.footprint;
@@ -503,7 +519,7 @@
       $('vSave').onclick = () => { NutStore.addVersion(slug, $('vLabel').value || 'saved by hand', fileDoc()); renderHist(); };
       for (const b of el.querySelectorAll('[data-r]')) b.onclick = () => { if (confirm('Replace the current layout with this version? (Undo brings the current one back.)')) { undo.push(key()); redo = []; doc = clone(v[Number(b.dataset.r)].doc); afterChange(); } };
     }
-    const changeCount = () => { let n = 0; for (const R of Object.values(doc.rooms)) for (const r of [].concat(R.objects || [], R.items || [], R.wall || [])) { if (r.base === undefined || r.deleted || r.look || NUT_LAYOUT.fp(NUT_LAYOUT.core(r)) !== r.base) n++; } return n; };
+    const changeCount = () => { let n = 0; for (const R of Object.values(doc.rooms)) for (const t of Object.values(R.times || {})) n += (t.objects || []).length + (t.items || []).length + (t.added || []).length; for (const R of Object.values(doc.rooms)) for (const r of [].concat(R.objects || [], R.items || [], R.wall || [])) { if (r.base === undefined || r.deleted || r.look || NUT_LAYOUT.fp(NUT_LAYOUT.core(r)) !== r.base) n++; } return n; };
     publish = async function () {
       saveDraft();
       const list = allChecks(), n = changeCount(), dlg = $('dlg');
@@ -541,6 +557,7 @@
     $('bPrev').onclick = () => game(false); $('bPlay').onclick = () => game(true);
     $('room').onchange = () => { S.room = $('room').value; S.sel = null; render(); };
     $('moment').onchange = () => { S.moment = $('moment').value; render(); };
+    $('onlyM').onchange = () => { S.only = $('onlyM').checked; render(); };
     $('time').onchange = () => { S.time = $('time').value; render(); };
     $('snap').onchange = () => { S.snap = Number($('snap').value); };
     for (const id of ['lamp', 'oGrid', 'oFoot', 'oNum', 'oItems']) $(id).onchange = () => render(false);
@@ -549,7 +566,7 @@
     $('ref').onchange = (e) => { const f = e.target.files[0]; if (!f) return; const img = new Image(); img.onload = () => { refImg = img; if ($('rOp').value === '100') $('rOp').value = 60; drawRef(); cRoom.style.opacity = Number($('rOp').value) / 100; }; img.src = URL.createObjectURL(f); };
     $('rClear').onclick = () => { refImg = null; $('ref').value = ''; $('rOp').value = 100; drawRef(); cRoom.style.opacity = 1; };
     window.addEventListener('keydown', (e) => {
-      if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement && document.activeElement.tagName) || $('dlg').open) return;
+      const ae = document.activeElement; if ((ae && /^(SELECT|TEXTAREA)$/.test(ae.tagName)) || (ae && ae.tagName === 'INPUT' && !/^(checkbox|radio|button)$/.test(ae.type)) || $('dlg').open) return;   // typing in a box is not a shortcut; a ticked box is not typing
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); }
       else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); doRedo(); }
@@ -561,7 +578,7 @@
       else if (e.key.startsWith('Arrow')) {
         e.preventDefault(); const k = e.shiftKey ? 0.05 : 0.25, dx = { ArrowLeft: -1, ArrowRight: 1 }[e.key] || 0, dy = { ArrowUp: -1, ArrowDown: 1 }[e.key] || 0, o = selObj();
         // the arrows move on the screen: right/down = +x/+y of the room's isometric axes
-        if (o) mutate((E) => E.move(S.room, o.id, [o.x + (dx + dy) * k, o.y + (dy - dx) * k], 0.05));
+        if (o) { const c = momentMode() ? o : (baseObj(o.id) || o); mutate((E) => E.move(S.room, o.id, [c.x + (dx + dy) * k, c.y + (dy - dx) * k], 0.05)); }
       }
     });
     window.addEventListener('beforeunload', () => { if (saveT) saveDraft(); });
