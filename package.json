@@ -7,6 +7,6 @@
   "scripts": {
     "assemble": "node scripts/assemble.mjs",
     "serve": "node scripts/assemble.mjs && npx http-server out/site -p 8080 -c-1",
-    "test": "node tests/e2e.mjs"
+    "test": "node tests/importer.test.mjs && node tests/e2e.mjs"
   }
 }

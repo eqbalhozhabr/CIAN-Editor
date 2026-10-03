@@ -16,5 +16,6 @@ if (!process.env.NO_BUILD) execSync('npm run build', { cwd: game, stdio: 'inheri
 fs.rmSync(out, { recursive: true, force: true });
 fs.cpSync(path.join(game, 'dist'), out, { recursive: true });
 fs.mkdirSync(path.join(out, 'editor'), { recursive: true });
-for (const f of ['index.html', 'editor.js']) fs.copyFileSync(path.join(here, f), path.join(out, 'editor', f));
+for (const f of ['index.html', 'editor.js', 'store.js', 'importer.js']) fs.copyFileSync(path.join(here, f), path.join(out, 'editor', f));
+for (const f of ['library', 'editor-config.json']) if (fs.existsSync(path.join(here, f))) fs.cpSync(path.join(here, f), path.join(out, 'editor', f), { recursive: true });   // shared sprites, and the publishing server's address when there is one
 console.log('assembled', path.relative(process.cwd(), out) || '.');

@@ -6,72 +6,73 @@
 <meta name="robots" content="noindex, nofollow">
 <title>Layout editor · Case in a Nutshell</title>
 <style>
-  :root { --bg: #1d1a26; --panel: #272333; --line: #3c3650; --ink: #ece6d6; --dim: #9d96b0; --free: #40c8e6; --locked: #f05ac8; --warn: #ff4a3c; --hi: #ffe650; }
+  :root { --bg: #1d1a26; --panel: #272333; --panel2: #2f2a3d; --line: #3c3650; --ink: #ece6d6; --dim: #9d96b0; --free: #40c8e6; --locked: #f05ac8; --warn: #ff4a3c; --hi: #ffe650; --ok: #7bd88f; --accent: #e0b04a; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-  header { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-  header .tag { font-size: 12px; color: var(--dim); }
-  .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-  .bar label { display: inline-flex; gap: 6px; align-items: center; color: var(--dim); font-size: 13px; }
-  select, input[type=file], button { background: #342f45; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; }
-  input[type=range] { width: 110px; }
-  main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; padding: 16px; align-items: start; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-  #stage { position: relative; width: max-content; max-width: 100%; background: #14121b; border: 1px solid var(--line); border-radius: 8px; overflow: auto; touch-action: none; }
-  #stage canvas { position: absolute; left: 0; top: 0; image-rendering: pixelated; }
-  #stage .size { visibility: hidden; display: block; }
-  #tip { position: absolute; pointer-events: none; background: #000c; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 12px; display: none; white-space: nowrap; }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 14px; }
-  section h2 { margin: 0; padding: 8px 12px; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--line); }
-  section .body { padding: 8px 12px; }
-  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  td, th { padding: 3px 4px; text-align: left; border-bottom: 1px solid #2f2a3d; }
-  tr.row { cursor: pointer; } tr.row:hover, tr.row.on { background: #3a3450; }
-  .badge { display: inline-block; padding: 0 6px; border-radius: 9px; font-size: 11px; border: 1px solid; }
-  .badge.free { color: var(--free); border-color: var(--free); } .badge.locked { color: var(--locked); border-color: var(--locked); } .badge.flat { color: var(--dim); border-color: var(--dim); }
-  .num { color: var(--dim); width: 1.6em; } .bad td:first-child, .bad .id { color: var(--warn); }
-  ul { margin: 0; padding-left: 18px; } li.warn { color: #ffb3ab; } li.ok { color: #9be2a8; list-style: none; margin-left: -18px; }
-  .note { color: var(--dim); font-size: 12.5px; }
-  #empty { padding: 30px; color: var(--dim); }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); font: 13.5px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  button, select, input[type=text], input[type=number], input[type=search] { background: #342f45; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font: inherit; }
+  button { cursor: pointer; } button:hover:not(:disabled) { background: #413a58; } button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: var(--accent); color: #231c0e; border-color: var(--accent); font-weight: 600; } button.primary:hover:not(:disabled) { background: #f0c25a; }
+  button.on { outline: 2px solid var(--accent); }
+  input[type=number] { width: 4.8em; } input[type=range] { width: 100px; }
+  #app { display: grid; grid-template-columns: 250px minmax(0, 1fr) 340px; grid-template-rows: auto auto 1fr; height: 100%; }
+  header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 15px; } header .sp { flex: 1; } .chip { padding: 1px 8px; border-radius: 10px; font-size: 12px; border: 1px solid var(--line); color: var(--dim); } .chip.dirty { color: var(--accent); border-color: var(--accent); } .chip.ok { color: var(--ok); border-color: var(--ok); }
+  #bar { grid-column: 2 / 3; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #231f2e; }
+  #bar .grp { display: flex; gap: 4px; align-items: center; padding-right: 10px; border-right: 1px solid var(--line); } #bar .grp:last-child { border: 0; } #bar label { color: var(--dim); display: inline-flex; gap: 4px; align-items: center; }
+  aside { overflow: auto; background: var(--panel); border-right: 1px solid var(--line); grid-row: 2 / 4; } aside.right { border: 0; border-left: 1px solid var(--line); }
+  #left { grid-column: 1; } #right { grid-column: 3; }
+  main { grid-column: 2; grid-row: 3; overflow: auto; padding: 12px; }
+  .case { border-bottom: 1px solid var(--line); } .case > .head { display: flex; gap: 6px; align-items: center; padding: 8px 10px; cursor: pointer; } .case > .head:hover { background: var(--panel2); } .case.cur > .head { background: var(--panel2); }
+  .case .no { color: var(--dim); width: 1.4em; } .case .t { flex: 1; font-weight: 600; } .case .rooms { padding: 0 6px 8px 28px; display: none; } .case.open .rooms { display: block; }
+  .rooms a { display: flex; justify-content: space-between; padding: 2px 8px; color: var(--ink); text-decoration: none; border-radius: 5px; } .rooms a:hover { background: var(--panel2); } .rooms a.cur { background: var(--accent); color: #231c0e; }
+  .case .acts { display: flex; gap: 4px; padding: 4px 0 6px; flex-wrap: wrap; } .case .acts button { padding: 2px 8px; font-size: 12px; }
+  .badge { display: inline-block; padding: 0 6px; border-radius: 9px; font-size: 11px; border: 1px solid; white-space: nowrap; } .badge.free { color: var(--free); border-color: var(--free); } .badge.locked { color: var(--locked); border-color: var(--locked); } .badge.flat, .badge.draft { color: var(--dim); border-color: var(--dim); } .badge.pub { color: var(--ok); border-color: var(--ok); } .badge.new { color: var(--accent); border-color: var(--accent); }
+  #stage { position: relative; width: max-content; background: #14121b; border: 1px solid var(--line); border-radius: 8px; touch-action: none; cursor: default; }
+  #stage canvas { position: absolute; left: 0; top: 0; image-rendering: pixelated; } #stage .size { display: block; visibility: hidden; }
+  #stage.drag { cursor: grabbing; } #tip { position: absolute; pointer-events: none; background: #000c; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 12px; display: none; white-space: nowrap; z-index: 5; }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 2; } .tabs button { flex: 1; border: 0; border-radius: 0; background: none; padding: 8px 4px; color: var(--dim); } .tabs button.on { color: var(--ink); border-bottom: 2px solid var(--accent); outline: 0; }
+  .pane { padding: 10px 12px; display: none; } .pane.on { display: block; } .pane h3 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); } .pane h3:first-child { margin-top: 0; }
+  .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; flex-wrap: wrap; } .row label { color: var(--dim); min-width: 4.2em; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; } td, th { padding: 3px 4px; text-align: left; border-bottom: 1px solid #2f2a3d; } tr.row2 { cursor: pointer; } tr.row2:hover, tr.row2.on { background: #3a3450; } .bad td { color: var(--warn); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; } .card { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; } .card canvas { image-rendering: pixelated; width: 64px; height: 64px; background: #1a1724; border-radius: 4px; } .card .n { font-size: 12px; word-break: break-word; } .card .b { display: flex; gap: 3px; flex-wrap: wrap; justify-content: center; } .card button { font-size: 11px; padding: 1px 6px; }
+  .note { color: var(--dim); font-size: 12.5px; } ul.w { margin: 0; padding-left: 18px; } li.warn { color: #ffb3ab; } li.ok { color: var(--ok); list-style: none; margin-left: -18px; } li.info { color: var(--dim); } li.error { color: var(--warn); }
+  dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; max-width: 640px; width: 92vw; padding: 16px; } dialog::backdrop { background: #000a; } dialog h2 { margin: 0 0 10px; font-size: 16px; } dialog .pv { display: flex; gap: 14px; flex-wrap: wrap; } dialog .pv canvas { image-rendering: pixelated; background: #1a1724; border: 1px solid var(--line); border-radius: 6px; max-width: 280px; max-height: 280px; }
+  dialog .foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+  #empty, #err { padding: 24px; color: var(--dim); }
+  @media (max-width: 1100px) { #app { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; } aside, main, #bar { grid-column: 1 !important; grid-row: auto !important; } aside { max-height: 50vh; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>Layout editor</h1>
-  <span class="tag">phase 1 &middot; viewer: grid, footprints, checks. Editing arrives in phase 3.</span>
-</header>
-<div class="bar">
-  <label>Case <select id="case"></select></label>
-  <label>Room <select id="room"></select></label>
-  <label id="momentL" hidden>Moment <select id="moment"></select></label>
-  <label>Zoom <select id="scale"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></label>
-  <label><input type="checkbox" id="lamp" checked> lamp on</label>
-  <label><input type="checkbox" id="oGrid" checked> grid</label>
-  <label><input type="checkbox" id="oFoot" checked> footprints</label>
-  <label><input type="checkbox" id="oNum" checked> numbers</label>
-  <label><input type="checkbox" id="oItems" checked> items</label>
-</div>
-<div class="bar">
-  <label>Reference image <input type="file" id="ref" accept="image/*"></label>
-  <label>room opacity <input type="range" id="rOp" min="10" max="100" value="100"></label>
-  <label>ref scale <input type="range" id="rSc" min="10" max="300" value="100"></label>
-  <label>ref x <input type="range" id="rX" min="-600" max="600" value="0"></label>
-  <label>ref y <input type="range" id="rY" min="-600" max="600" value="0"></label>
-  <button id="rClear" type="button">remove reference</button>
-</div>
-<main>
-  <div>
+<div id="app">
+  <header>
+    <h1>Layout editor</h1><span id="caseName" class="chip"></span><span id="state" class="chip"></span><span class="sp"></span>
+    <span class="note">Case in a Nutshell &middot; phase 3</span>
+  </header>
+  <aside id="left"><div id="cases"></div></aside>
+  <div id="bar">
+    <div class="grp"><button id="bUndo" title="Ctrl+Z">Undo</button><button id="bRedo" title="Ctrl+Y">Redo</button></div>
+    <div class="grp"><button id="bRot" title="R">Rotate</button><button id="bDel" title="Delete">Delete</button><label>snap <select id="snap"><option value="0.25">1/4 tile</option><option value="0.05">fine</option></select></label></div>
+    <div class="grp"><label>Room <select id="room"></select></label><label id="momentL" hidden>Moment <select id="moment"></select></label><label>Time <select id="time"><option value="">as the case has it</option><option value="day">day</option><option value="night">night</option></select></label><label><input type="checkbox" id="lamp" checked> lamp</label></div>
+    <div class="grp"><label>Zoom <select id="scale"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></label><label><input type="checkbox" id="oGrid" checked> grid</label><label><input type="checkbox" id="oFoot" checked> footprints</label><label><input type="checkbox" id="oNum" checked> numbers</label><label><input type="checkbox" id="oItems" checked> items</label></div>
+    <div class="grp"><button id="bSave" title="Ctrl+S">Save draft</button><button id="bExport">Export file</button><button id="bPlay" title="Open the game in this room, with the draft">Play from here</button><button id="bPrev" title="Open the game with the draft layout">Preview</button><button id="bPub" class="primary">Publish</button></div>
+  </div>
+  <main>
+    <div id="err" hidden></div>
     <div id="stage"><span class="size" id="size"></span><canvas id="cRef"></canvas><canvas id="cRoom"></canvas><canvas id="cOver"></canvas><div id="tip"></div></div>
-    <p class="note">Cyan = free object (look and place are yours), magenta = locked (a puzzle, lock or zoom view: place and facing only), grey = flat on the floor, red = a warning. Yellow marks are small items; they sit on a host and follow it.</p>
-  </div>
-  <div>
-    <section><h2>Checks</h2><div class="body" id="checks"></div></section>
-    <section><h2>Objects</h2><div class="body"><table id="objs"></table></div></section>
-    <section><h2>Small items</h2><div class="body"><table id="items"></table></div></section>
-    <section><h2>Layout file</h2><div class="body note" id="status"></div></section>
-  </div>
-</main>
+    <p class="note">Click an object to select it, drag to move it (snaps to the grid, Shift = fine), R turns it, Delete removes it, arrow keys nudge. Cyan = free (place and look are yours), magenta = locked (a puzzle, a lock or a zoom view: place and facing only), grey = flat on the floor, red = a warning. Yellow marks are small items: they sit on a host and follow it.</p>
+    <div class="row"><label>Reference image</label><input type="file" id="ref" accept="image/*"><label>room opacity</label><input type="range" id="rOp" min="10" max="100" value="100"><label>ref scale</label><input type="range" id="rSc" min="10" max="300" value="100"><label>x</label><input type="range" id="rX" min="-600" max="600" value="0"><label>y</label><input type="range" id="rY" min="-600" max="600" value="0"><button id="rClear" type="button">remove</button></div>
+  </main>
+  <aside id="right" class="right">
+    <div class="tabs"><button data-t="insp" class="on">Selected</button><button data-t="lib">Library</button><button data-t="chk">Checks</button><button data-t="hist">Versions</button></div>
+    <div class="pane on" id="p-insp"></div>
+    <div class="pane" id="p-lib"></div>
+    <div class="pane" id="p-chk"></div>
+    <div class="pane" id="p-hist"></div>
+  </aside>
+</div>
+<dialog id="dlg"></dialog>
+<script src="store.js"></script>
+<script src="importer.js"></script>
 <script src="editor.js"></script>
 </body>
 </html>
