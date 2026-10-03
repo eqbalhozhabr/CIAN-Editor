@@ -1,0 +1,12 @@
+{
+  "name": "cian-editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Layout editor page for Case in a Nutshell. Static, no build step: it reads the engine and the cases from the game's assets at run time.",
+  "scripts": {
+    "assemble": "node scripts/assemble.mjs",
+    "serve": "node scripts/assemble.mjs && npx http-server out/site -p 8080 -c-1",
+    "test": "node tests/e2e.mjs"
+  }
+}
