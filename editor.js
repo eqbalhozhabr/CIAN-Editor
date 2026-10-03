@@ -336,11 +336,19 @@
         <h3>Colours</h3><div class="note">Every colour the room is made of. A changed one is marked; the arrow takes it back.</div>
         <div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr))">${(spec.custom ? Object.keys(gen.pal) : NUT_LAYOUT.ROOM_COLOURS).map((k) => { const mine = rs.pal && rs.pal[k], cur = mine || gen.pal[k]; return `<div class="row" style="margin:2px 0"><input type="color" data-c="${k}" value="${hex(cur)}"><span title="${k}">${k}${mine ? ' *' : ''}</span>${mine ? `<button data-cr="${k}" title="back to the colour the kit chose">&larr;</button>` : ''}</div>`; }).join('')}</div>
         <div class="row"><button data-a="resetroom" ${doc.rooms[S.room] && doc.rooms[S.room].room ? '' : 'disabled'}>Back to the kit's floor, walls and colours</button></div>
-        <h3>Size</h3><div class="note">The size of the room (${room.nx || 8} x ${room.ny || 8} tiles) cannot be changed here yet: moving the walls means moving every door, window and object with them.</div>`;
+        <h3>Size</h3>
+        <div class="row"><label>right wall</label><input type="number" min="${NUT_LAYOUT.MIN_SIDE}" max="${NUT_LAYOUT.MAX_SIDE}" step="1" id="szX" value="${room.nx || 8}"><span>tiles</span><label>left wall</label><input type="number" min="${NUT_LAYOUT.MIN_SIDE}" max="${NUT_LAYOUT.MAX_SIDE}" step="1" id="szY" value="${room.ny || 8}"><span>tiles</span><button data-a="size">Resize</button></div>
+        <div class="row"><label><input type="checkbox" id="szF" ${S.follow === false ? '' : 'checked'}> move what stands by the far walls along with them</label></div>
+        <div class="note" id="szNote">As the kit built it: ${gen.nx || 8} x ${gen.ny || 8}. Each wall is ${NUT_LAYOUT.MIN_SIDE} to ${NUT_LAYOUT.MAX_SIDE} tiles and together at most ${NUT_LAYOUT.MAX_SUM}: the picture is 176 pixels wide, so a room can be reshaped or made smaller, and made bigger only by a tile or so. Doors, windows and objects in the far half move with the walls when the box is ticked; nothing is deleted, and what no longer fits shows up in Checks.</div>`;
+      el.querySelector('[data-a=size]').onclick = () => {
+        const x = Number($('szX').value), y = Number($('szY').value); S.follow = $('szF').checked;
+        if (!NUT_LAYOUT.validSize(x, y)) { $('szNote').style.color = '#ff4a3c'; $('szNote').textContent = `${x} x ${y} does not fit: whole tiles, ${NUT_LAYOUT.MIN_SIDE} to ${NUT_LAYOUT.MAX_SIDE} a side and ${NUT_LAYOUT.MAX_SUM} or less in all.`; return; }
+        mutate((E) => E.resizeRoom(S.room, [x, y], { follow: S.follow }));
+      };
       for (const s2 of el.querySelectorAll('select[data-r]')) s2.onchange = () => { const v = unpv(s2.value); setRoomLook({ [s2.dataset.r]: v }, v && v.sprite); };
       for (const c of el.querySelectorAll('input[data-c]')) c.onchange = () => mutate((E) => E.setRoom(S.room, { pal: { [c.dataset.c]: c.value } }));
       for (const b of el.querySelectorAll('button[data-cr]')) b.onclick = () => mutate((E) => E.setRoom(S.room, { pal: { [b.dataset.cr]: null } }));
-      el.querySelector('[data-a=resetroom]').onclick = () => mutate((E) => { const r = (doc.rooms[S.room] || {}).room || {}; return E.setRoom(S.room, { floor: null, wallL: null, wallR: null, pal: Object.fromEntries(Object.keys(r.pal || {}).map((k) => [k, null])) }); });
+      el.querySelector('[data-a=resetroom]').onclick = () => mutate((E) => { const r = (doc.rooms[S.room] || {}).room || {}; return E.setRoom(S.room, { floor: null, wallL: null, wallR: null, pal: Object.fromEntries(Object.keys(r.pal || {}).map((k) => [k, null])) }); });   // (the size has its own button)
     }
 
     /* ---------- the Library tab ---------- */

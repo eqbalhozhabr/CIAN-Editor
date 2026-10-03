@@ -146,6 +146,16 @@ await pg.$eval('#p-room input[data-c=floorA]', (e) => { e.value = '#00ff88'; e.d
 ok(await API((A) => A.doc.rooms.living.room.pal.floorA === '#00ff88') && (await pg.isVisible('#p-room button[data-cr=floorA]')), 'a colour changes and is marked');
 await pg.keyboard.press('Control+z'); await pg.keyboard.press('Control+z'); await pg.keyboard.press('Control+z');
 ok(await API((A) => !(A.doc.rooms.living && A.doc.rooms.living.room && A.doc.rooms.living.room.floor)), 'Undo takes the floor choice back');
+// the size of the room
+const nx0 = await API((A) => [A.cur.r.nx, A.cur.r.ny]), door0 = await API((A) => A.cur.r.walls({ variant: 0, lampT: 0, flags: {} }, A.cur.r).L.items.find((i) => i.name === 'door:lobby').u0);
+await pg.fill('#szY', '6'); await pg.click('#p-room [data-a=size]');
+const nx1 = await API((A) => [A.cur.r.nx, A.cur.r.ny]), door1 = await API((A) => A.cur.r.walls({ variant: 0, lampT: 0, flags: {} }, A.cur.r).L.items.find((i) => i.name === 'door:lobby').u0);
+ok(nx0.join() === '8,8' && nx1.join() === '8,6' && Math.abs(door0 - door1 - 2) < 1e-9, 'Resize makes the room 8 x 6 and the door at the far end moves in with the wall');
+ok(await API((A) => A.doc.rooms.living.room.size.join() === '8,6') && (await pg.innerText('#p-chk')) !== undefined, 'the size is in the layout');
+await pg.fill('#szX', '14'); await pg.click('#p-room [data-a=size]');
+ok((await pg.innerText('#szNote')).includes('does not fit') && (await API((A) => A.cur.r.nx)) === 8, 'a size that cannot fit the picture is refused with the reason');
+await pg.keyboard.press('Control+z');
+ok((await API((A) => [A.cur.r.nx, A.cur.r.ny])).join() === '8,8', 'Undo gives the room its size back');
 await pg.click('.tabs button[data-t=lib]'); await pg.selectOption('#libK', 'sprites');
 const chT = pg.waitForEvent('filechooser'); await pg.click('#libUp'); await (await chT).setFiles('out/shots/tile.png');
 await pg.waitForSelector('#dlg[open]'); await pg.check('input[name=ivKind][value=tile]');
