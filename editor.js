@@ -36,6 +36,16 @@
   const S = { room: null, moment: '', time: '', sel: null, scale: 5, snap: 0.25, tab: 'insp', libKind: 'objects', libQ: '' };
   let publishOther = () => {}, publish = () => {};
 
+  /* ---------- the server (phase 4): signed-in users, drafts and published layouts kept online ---------- */
+  let API = null;   // from editor-config.json: { "api": "/case-in-a-nutshell/api/editor" }; without it the editor keeps everything in this browser
+  const server = async (method, path, body, keepalive) => {
+    const r = await fetch(API + '/' + path, { method, credentials: 'same-origin', keepalive: !!keepalive, headers: Object.assign({ 'x-editor': '1' }, body !== undefined ? { 'content-type': 'application/json' } : {}), body: body === undefined ? undefined : JSON.stringify(body) });
+    if (r.status === 401) { alert('Your session has ended. The page will ask you to sign in again.'); location.reload(); throw new Error('signed out'); }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || r.status);
+    return data;
+  };
+
   const getManifest = async () => {
     for (const base of ['assets/', '../assets/']) {
       try { const r = await fetch(base + 'editor-manifest.json', { cache: 'no-cache' }); if (r.ok) { ASSETS = base; return await r.json(); } } catch (e) { /* try the next place */ }
@@ -50,19 +60,28 @@
     await loadScript(ASSETS + man.engine.file + '?v=' + man.engine.v);
     await loadScript(ASSETS + entry.file + '?v=' + entry.v);
     let shared = null; try { const r = await fetch('library/sprites.json', { cache: 'no-cache' }); if (r.ok) shared = await r.json(); } catch (e) { /* the shared library is optional */ }
-    start(entry, shared);
+    try { const r = await fetch('editor-config.json', { cache: 'no-cache' }); if (r.ok) { const c = await r.json(); API = c.api ? String(c.api).replace(/\/$/, '') : null; } } catch (e) { /* no server configured */ }
+    let srv = null;
+    if (API) { try { const [layout, library, me] = await Promise.all([server('GET', 'layout/' + entry.slug), server('GET', 'library'), server('GET', 'me')]); srv = { layout, library: library.sprites || {}, user: me.user }; } catch (e) { if (e.message !== 'signed out') srv = { down: String(e.message || e) }; } }
+    start(entry, shared, srv);
   }).catch((e) => { const el = $('err'); el.hidden = false; el.textContent = String(e.message || e); });
 
-  function start(entry, shared) {
+  function start(entry, shared, srv) {
     const slug = entry.slug, ids = Object.keys(ROOMS), sceneId = CASE.sceneRoom || 'bedroom', cat = MAN.catalog;
     NUT_LIBRARY.setCatalog(cat);
     $('caseName').textContent = `${entry.no ? entry.no + '. ' : ''}${entry.title}`;
     /* the document: this browser's draft, else the layout the case shipped with, else an empty one (records are made from the generator as you edit) */
-    const lib = NutStore.library(); lib.sprites = Object.assign({}, shared && shared.sprites, lib.sprites);
+    const online = !!(srv && srv.layout);
+    const lib = NutStore.library(); lib.sprites = Object.assign({}, shared && shared.sprites, lib.sprites, online ? srv.library : {});
+    const libSync = (id, spec) => { if (online) server(spec ? 'PUT' : 'DELETE', 'library/' + id, spec ? { spec } : undefined).catch(() => { /* the picture stays in this browser */ }); };
+    if (online) { for (const [id, spec] of Object.entries(NutStore.library().sprites)) if (!(id in srv.library)) libSync(id, spec); $('who').textContent = srv.user; $('bOut').hidden = false; $('bOut').onclick = () => server('POST', 'logout', {}).then(() => location.reload()).catch(() => location.reload()); }
+    else if (srv && srv.down) { $('who').textContent = 'server unreachable: working in this browser'; }
     NUT_SPRITES.add(lib.sprites);
-    let doc = NutStore.draft(slug) || (NUT_LAYOUT.state.shipped ? clone(NUT_LAYOUT.state.shipped) : { version: 1, case: slug, rooms: {} });
-    const shippedKey = JSON.stringify(NUT_LAYOUT.state.shipped || { version: 1, case: slug, rooms: {} });
-    let undo = [], redo = [], saveT = null, savedAt = NutStore.draft(slug) ? 'draft kept in this browser' : '';
+    const empty = { version: 1, case: slug, rooms: {} };
+    const sv = online ? srv.layout : null, newest = sv && [sv.draft, sv.published].filter(Boolean).sort((a, b) => b.id - a.id)[0];
+    let doc = (newest && clone(newest.doc)) || NutStore.draft(slug) || (NUT_LAYOUT.state.shipped ? clone(NUT_LAYOUT.state.shipped) : empty);
+    const shippedKey = JSON.stringify((sv && sv.published && sv.published.doc) || NUT_LAYOUT.state.shipped || empty);   // "no changes" means: the same as what the players have
+    let undo = [], redo = [], saveT = null, srvT = null, savedAt = online ? (newest ? (newest.status === 'draft' ? 'draft from the server' : 'as published') : '') : (NutStore.draft(slug) ? 'draft kept in this browser' : '');
     const ed = () => NUT_LAYOUT.editor(doc, ROOMS, CASE);
     const reapply = () => NUT_LAYOUT.apply(ROOMS, doc, CASE);
     reapply();
@@ -161,11 +180,20 @@
       if (!Object.keys(d.sprites).length) delete d.sprites;
       return d;
     }
-    function saveDraft() { clearTimeout(saveT); doc.sprites = fileDoc().sprites; if (!doc.sprites) delete doc.sprites; const ok = NutStore.saveDraft(slug, doc); const nw = allChecks().length; savedAt = ok ? 'draft saved ' + new Date().toLocaleTimeString() + (nw ? ` · ${nw} warning${nw === 1 ? '' : 's'}` : '') : 'could not save: browser storage is blocked'; renderState(); }
+    function saveDraft(now) {
+      clearTimeout(saveT); doc.sprites = fileDoc().sprites; if (!doc.sprites) delete doc.sprites;
+      const ok = NutStore.saveDraft(slug, doc), nw = allChecks().length, warn = nw ? ` · ${nw} warning${nw === 1 ? '' : 's'}` : '';
+      savedAt = ok ? 'draft saved ' + new Date().toLocaleTimeString() + warn : 'could not save: browser storage is blocked';
+      if (online) { clearTimeout(srvT); if (now === true) pushDraft(warn); else srvT = setTimeout(() => pushDraft(warn), 1200); }
+      renderState();
+    }
+    function pushDraft(warn, keepalive) {
+      return server('PUT', 'layout/' + slug + '/draft', { doc: fileDoc() }, keepalive).then(() => { savedAt = 'saved to the server ' + new Date().toLocaleTimeString() + (warn || ''); renderState(); }).catch((e) => { if (e.message === 'signed out') return; savedAt = 'could not reach the server (kept in this browser): ' + e.message; renderState(); });
+    }
     function renderState() {
       const same = key() === shippedKey, el = $('state');
       el.textContent = same && !NutStore.draft(slug) ? 'no changes' : (savedAt || 'unsaved changes');
-      el.className = 'chip ' + (same ? '' : (savedAt.startsWith('draft saved') ? 'ok' : 'dirty'));
+      el.className = 'chip ' + (same ? '' : (/^(draft saved|saved to the server|published|draft from the server)/.test(savedAt) ? 'ok' : 'dirty'));
       $('bUndo').disabled = !undo.length; $('bRedo').disabled = !redo.length;
       const sel = S.sel && S.sel.kind === 'obj' ? cur && cur.r.objects.find((o) => o.id === S.sel.id) : null;
       $('bRot').disabled = !sel || !NUT_LIBRARY.rotInfo(origType(sel), [sel.w, sel.d]); $('bDel').disabled = !sel || ed().isLocked(S.room, sel.id, sel.hot);
@@ -404,12 +432,12 @@
           if (s.tile) { card((s.name || id) + ' (tile)', cardCanvas('s:' + id + s.px.length, () => spriteThumb(id)), [
             ['Floor', () => setRoomLook({ floor: { sprite: id } }, id), false, 'Use as the floor of this room'], ['Wall L', () => setRoomLook({ wallL: { sprite: id } }, id)], ['Wall R', () => setRoomLook({ wallR: { sprite: id } }, id)],
             ['PNG', () => downloadPng(id + '.png', NUT_SPRITES.toRGBA(s), s.w, s.h, 8)],
-            ['Delete', () => { if (confirm('Remove this tile from the library? Layouts that use it keep their own copy.')) { delete lib.sprites[id]; NutStore.saveLibrary(lib); renderLib(); } }]]); continue; }
+            ['Delete', () => { if (confirm('Remove this tile from the library? Layouts that use it keep their own copy.')) { delete lib.sprites[id]; NutStore.saveLibrary(lib); libSync(id, null); renderLib(); } }]]); continue; }
           card(s.name || id, cardCanvas('s:' + id + s.px.length, () => spriteThumb(id)), [
             ['Add', () => addObject({ type: 'sprite', footprint: s.fp, hot: null, props: { sprite: id }, look: null, sprite: id })],
             ['Use', () => useSprite(id), !(canObj || canWall), 'Give the selected object or wall item this picture'],
             ['PNG', () => downloadPng(id + '.png', NUT_SPRITES.toRGBA(s), s.w, s.h, 8)],
-            ['Delete', () => { if (confirm('Remove this sprite from the library? Layouts that use it keep their own copy.')) { delete lib.sprites[id]; NutStore.saveLibrary(lib); renderLib(); } }]]);
+            ['Delete', () => { if (confirm('Remove this sprite from the library? Layouts that use it keep their own copy.')) { delete lib.sprites[id]; NutStore.saveLibrary(lib); libSync(id, null); renderLib(); } }]]);
         }
       }
       if (k === 'paints') for (const p of cat.paints) {
@@ -489,7 +517,7 @@
         const name = $('ivName').value.trim() || nm; let id = name.replace(/[^a-z0-9-]/gi, '-').toLowerCase(), n = 1; while (lib.sprites[id]) id = name.replace(/[^a-z0-9-]/gi, '-').toLowerCase() + '-' + (++n);
         let spec;
         try { spec = NUT_SPRITES.fromRGBA(res.rgba, res.w, res.h, kind === 'tile' ? { name, ax: 0, ay: 0, fp: [Number($('ivW').value) || 1, Number($('ivD').value) || 1], tile: true, outline: false, tags: ['uploaded', 'tile'], ...(lock ? {} : { offPalette: true }) } : { name, ax: Number($('ivAx').value), ay: Number($('ivAy').value), fp: [Number($('ivW').value) || 1, Number($('ivD').value) || 1], outline: !$('ivOut').checked, tags: ['uploaded'], ...(lock ? {} : { offPalette: true }) }); } catch (e) { alert(e.message); return; }
-        lib.sprites[id] = spec; NUT_SPRITES.add({ [id]: spec }); NutStore.saveLibrary(lib);
+        lib.sprites[id] = spec; NUT_SPRITES.add({ [id]: spec }); NutStore.saveLibrary(lib); libSync(id, spec);
         dlg.close(); delete thumbCache['s:' + id + spec.px.length];
         if (use && kind !== 'tile') useSprite(id); else { S.libKind = 'sprites'; setTab('lib'); }
         renderLib();
@@ -514,31 +542,48 @@
       el.innerHTML = h;
     }
     function renderHist() {
-      const v = NutStore.versions(slug), el = $('p-hist');
-      el.innerHTML = `<div class="row"><input type="text" id="vLabel" placeholder="label (optional)"><button id="vSave">Save a version</button></div>` + (v.length ? '<table>' + v.map((x, i) => `<tr><td>${new Date(x.t).toLocaleString()}</td><td>${esc(x.label || '')}</td><td><button data-r="${i}">Restore</button></td></tr>`).join('') + '</table>' : '<p class="note">No saved versions. Publishing saves one; so does the button above.</p>') + '<p class="note">Versions are kept in this browser (the last 20). The online store comes with phase 4.</p>';
+      const el = $('p-hist');
+      if (online) {
+        el.innerHTML = '<p class="note">Loading&hellip;</p>';
+        server('GET', 'layout/' + slug).then((l) => {
+          const rows = l.versions;
+          el.innerHTML = (rows.length ? '<table>' + rows.map((x) => `<tr><td>${new Date(x.created_at).toLocaleString()}</td><td><span class="badge ${x.status === 'published' ? 'pub' : 'draft'}">${x.status}</span></td><td>${esc(x.author)}${x.label ? ' &middot; ' + esc(x.label) : ''}</td><td><button data-id="${x.id}">Restore</button></td></tr>`).join('') + '</table>' : '<p class="note">Nothing saved on the server yet.</p>') + '<p class="note">Every publish is kept; drafts keep the last 25. Restoring puts that version in the editor as a draft (Undo brings the current one back).</p>';
+          for (const b of el.querySelectorAll('[data-id]')) b.onclick = () => server('GET', 'layout/' + slug + '/version/' + b.dataset.id).then((v) => { if (confirm('Replace the current layout with this version?')) { undo.push(key()); redo = []; doc = clone(v.doc); afterChange(); } }).catch((e) => alert('Could not load it: ' + e.message));
+        }).catch((e) => { if (e.message !== 'signed out') el.innerHTML = `<p class="note">The server did not answer (${esc(e.message)}).</p>`; });
+        return;
+      }
+      const v = NutStore.versions(slug);
+      el.innerHTML = `<div class="row"><input type="text" id="vLabel" placeholder="label (optional)"><button id="vSave">Save a version</button></div>` + (v.length ? '<table>' + v.map((x, i) => `<tr><td>${new Date(x.t).toLocaleString()}</td><td>${esc(x.label || '')}</td><td><button data-r="${i}">Restore</button></td></tr>`).join('') + '</table>' : '<p class="note">No saved versions. Publishing saves one; so does the button above.</p>') + '<p class="note">Versions are kept in this browser (the last 20). Without a publishing server this is all there is.</p>';
       $('vSave').onclick = () => { NutStore.addVersion(slug, $('vLabel').value || 'saved by hand', fileDoc()); renderHist(); };
       for (const b of el.querySelectorAll('[data-r]')) b.onclick = () => { if (confirm('Replace the current layout with this version? (Undo brings the current one back.)')) { undo.push(key()); redo = []; doc = clone(v[Number(b.dataset.r)].doc); afterChange(); } };
     }
     const changeCount = () => { let n = 0; for (const R of Object.values(doc.rooms)) for (const t of Object.values(R.times || {})) n += (t.objects || []).length + (t.items || []).length + (t.added || []).length; for (const R of Object.values(doc.rooms)) for (const r of [].concat(R.objects || [], R.items || [], R.wall || [])) { if (r.base === undefined || r.deleted || r.look || NUT_LAYOUT.fp(NUT_LAYOUT.core(r)) !== r.base) n++; } return n; };
     publish = async function () {
       saveDraft();
-      const list = allChecks(), n = changeCount(), dlg = $('dlg');
-      let api = null; try { const r = await fetch('editor-config.json', { cache: 'no-cache' }); if (r.ok) api = (await r.json()).api || null; } catch (e) { /* no server configured */ }
-      dlg.innerHTML = `<h2>Publish ${esc(entry.title)}</h2><p>${n} changed record${n === 1 ? '' : 's'} against rooms.js. The game shows the layout once it is published.</p>
+      const list = allChecks(), n = changeCount(), dlg = $('dlg'), api = online;
+      dlg.innerHTML = `<h2>Publish ${esc(entry.title)}</h2><p>${n} changed record${n === 1 ? '' : 's'} against rooms.js. ${api ? 'Players see this layout as soon as it is published (the page they already have open updates when they reload).' : 'The game shows the layout once it is published.'}</p>
         ${list.length ? `<p><b>${list.length} warning${list.length === 1 ? '' : 's'}</b> (they do not stop publishing):</p><ul class="w">${list.map((m) => `<li class="warn">${esc(m)}</li>`).join('')}</ul>` : '<p class="note">No warnings in any room.</p>'}
-        ${api ? `<p class="note">This will send the layout to ${esc(api)}.</p>` : `<p class="note">This build has no publishing server yet (phase 4). "Publish" saves a version here and downloads <code>layout.json</code>; put it at <code>src/cases/${esc(slug)}/layout.json</code> in the game repo and deploy.</p>`}
+        ${api ? '<div class="row"><label>note</label><input type="text" id="pLabel" placeholder="what changed (optional)" style="flex:1"></div><p class="note">Every published version is kept, so an earlier one can be put back from the Versions tab.</p>' : `<p class="note">This build has no publishing server (or it did not answer). "Publish" saves a version here and downloads <code>layout.json</code>; put it at <code>src/cases/${esc(slug)}/layout.json</code> in the game repo and deploy.</p>`}
         <div class="foot"><button id="pCancel">Cancel</button><button id="pGo" class="primary">${api ? 'Publish' : 'Save version and download'}</button></div>`;
       dlg.showModal();
       $('pCancel').onclick = () => dlg.close();
       $('pGo').onclick = async () => {
-        const text = NUT_LAYOUT.format(fileDoc());
-        NutStore.addVersion(slug, api ? 'published' : 'exported for publishing', fileDoc());
-        if (api) { try { const r = await fetch(api.replace(/\/$/, '') + '/layout/' + encodeURIComponent(slug), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(fileDoc()) }); if (!r.ok) throw new Error(r.status); savedAt = 'published ' + new Date().toLocaleTimeString(); } catch (e) { alert('Publishing failed (' + e.message + '). Nothing changed online.'); return; } }
-        else { download('layout.json', text); savedAt = 'exported ' + new Date().toLocaleTimeString(); }
+        if (api) {
+          try { clearTimeout(srvT); await server('POST', 'layout/' + slug + '/publish', { doc: fileDoc(), label: $('pLabel').value || null }); savedAt = 'published ' + new Date().toLocaleTimeString(); }
+          catch (e) { if (e.message !== 'signed out') alert('Publishing failed (' + e.message + '). Nothing changed online.'); return; }
+        } else { NutStore.addVersion(slug, 'exported for publishing', fileDoc()); download('layout.json', NUT_LAYOUT.format(fileDoc())); savedAt = 'exported ' + new Date().toLocaleTimeString(); }
         dlg.close(); renderState(); renderHist();
       };
     };
-    publishOther = (other) => {
+    publishOther = async (other) => {
+      if (online) {
+        try {
+          const l = await server('GET', 'layout/' + other), d = l.draft;
+          if (!d || (l.published && l.published.id > d.id)) { alert('This case has no unpublished draft on the server: open it and make a change first.'); return; }
+          if (confirm('Publish the saved draft of this case as it is? (Open the case to see the checks first.)')) { await server('POST', 'layout/' + other + '/publish', { doc: d.doc, label: 'published from the case list' }); alert('Published.'); }
+        } catch (e) { if (e.message !== 'signed out') alert('Failed: ' + e.message); }
+        return;
+      }
       const d = NutStore.draft(other);
       if (!d) { alert('This case has no draft in this browser: open it and make a change first.'); return; }
       if (confirm('Download the draft layout of this case? (Open the case to see the checks before publishing.)')) download(`layout-${other}.json`, JSON.stringify(d, null, 1));
@@ -550,7 +595,7 @@
     $('bUndo').onclick = doUndo; $('bRedo').onclick = doRedo;
     $('bRot').onclick = () => { const o = selObj(); if (o) mutate((E) => E.rotate(S.room, o.id)); };
     $('bDel').onclick = () => { const o = selObj(); if (o) { mutate((E) => E.remove(S.room, o.id)); S.sel = null; render(); } };
-    $('bSave').onclick = () => { saveDraft(); };
+    $('bSave').onclick = () => { saveDraft(true); };
     $('bExport').onclick = () => download('layout.json', NUT_LAYOUT.format(fileDoc()));
     $('bPub').onclick = () => publish();
     const game = (room) => { if (!entry.published) { alert('This case has no game page yet (it is not in index.json). Preview works once it is added.'); return; } saveDraft(); window.open(`../${slug}/?layout=draft${room ? '&room=' + encodeURIComponent(S.room) : ''}`, '_blank'); };
@@ -581,7 +626,7 @@
         if (o) { const c = momentMode() ? o : (baseObj(o.id) || o); mutate((E) => E.move(S.room, o.id, [c.x + (dx + dy) * k, c.y + (dy - dx) * k], 0.05)); }
       }
     });
-    window.addEventListener('beforeunload', () => { if (saveT) saveDraft(); });
+    window.addEventListener('beforeunload', () => { if (saveT || srvT) { saveDraft(); if (online) { clearTimeout(srvT); pushDraft('', true); } } });
     sizeStage(); render(); renderLib();
     window.NUT_EDITOR_API = { get doc() { return doc; }, S, mutate, render, pick, get geo() { return geo; }, get cur() { return cur; }, importDialog, lib, ed };
   }

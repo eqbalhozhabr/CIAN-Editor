@@ -9,8 +9,9 @@ import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const game = path.resolve(process.argv[2] || process.env.GAME_DIR || path.join(here, '..', 'Case-in-a-Nutshell'));
-const out = path.resolve(process.argv[3] || path.join(here, 'out', 'site'));
+const pos = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const game = path.resolve(pos[0] || process.env.GAME_DIR || path.join(here, '..', 'Case-in-a-Nutshell'));
+const out = path.resolve(pos[1] || path.join(here, 'out', 'site'));
 if (!fs.existsSync(path.join(game, 'tools', 'build.mjs'))) { console.error('game repo not found at ' + game + ' (pass its path, or set GAME_DIR)'); process.exit(1); }
 if (!process.env.NO_BUILD) execSync('npm run build', { cwd: game, stdio: 'inherit' });
 fs.rmSync(out, { recursive: true, force: true });
@@ -24,5 +25,7 @@ fs.rmSync(solo, { recursive: true, force: true }); fs.mkdirSync(path.join(solo, 
 for (const f of ['index.html', 'editor.js', 'store.js', 'importer.js']) fs.copyFileSync(path.join(here, f), path.join(solo, f));
 for (const f of ['library', 'editor-config.json']) if (fs.existsSync(path.join(here, f))) fs.cpSync(path.join(here, f), path.join(solo, f), { recursive: true });
 for (const f of fs.readdirSync(path.join(game, 'dist', 'assets'))) if (f === 'engine.js' || f === 'editor-manifest.json' || /^case-.*\.js$/.test(f)) fs.copyFileSync(path.join(game, 'dist', 'assets', f), path.join(solo, 'assets', f));
+const api = process.env.EDITOR_API || (process.argv.includes('--site') ? '/case-in-a-nutshell/api/editor' : '');   // --site: the editor as it runs on luckylion.games, talking to its Worker
+if (api) fs.writeFileSync(path.join(solo, 'editor-config.json'), JSON.stringify({ api }) + '\n');
 console.log('self-contained editor folder:', path.relative(process.cwd(), solo));
 console.log('assembled', path.relative(process.cwd(), out) || '.');
