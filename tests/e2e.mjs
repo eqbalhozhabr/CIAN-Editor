@@ -135,6 +135,20 @@ await pg.waitForSelector('#dlg[open]'); await pg.uncheck('#ivLock');
 ok(/not locked to the game palette/.test(await pg.innerText('#ivN')) && await pg.isDisabled('#ivAdd') && await pg.isVisible('#ivAck'), 'an image kept off the game palette needs an explicit OK');
 await pg.click('#ivCancel');
 
+// a window dragged across the corner to the other wall
+const winPt = (side, u, z) => API((A, [side, u, z]) => { const p = side === 'R' ? P(u, 0, z) : P(0, u, z), b = document.getElementById('cOver').getBoundingClientRect(), s = A.S.scale; return { x: b.left + p[0] * s, y: b.top + p[1] * s }; }, side, u, z);
+const wall0 = await API((A) => { const w = A.cur.r.walls({ variant: 0, lampT: 0, flags: {} }, A.cur.r); const it = w.L.items.find((i) => i.name === 'window'); return { u0: it.u0, u1: it.u1, z: (it.z0 + it.z1) / 2, nL: w.L.items.length, nR: w.R.items.length }; });
+const docBefore = await API((A) => JSON.stringify(A.doc));
+const from = await winPt('L', (wall0.u0 + wall0.u1) / 2, wall0.z), to = await winPt('R', 5, wall0.z);
+await pg.mouse.move(from.x, from.y); await pg.mouse.down(); await pg.mouse.move((from.x + to.x) / 2, from.y, { steps: 5 }); await pg.mouse.move(to.x, to.y, { steps: 8 }); await pg.mouse.up();
+const wall1 = await API((A) => { const w = A.cur.r.walls({ variant: 0, lampT: 0, flags: {} }, A.cur.r), rec = (A.doc.rooms.living.wall || []).find((r) => r.to); return { nL: w.L.items.length, nR: w.R.items.length, rec: rec && { key: rec.key, to: rec.to, span: rec.span } }; });
+ok(wall1.nL === wall0.nL - 1 && wall1.nR === wall0.nR + 1 && wall1.rec && wall1.rec.to === 'R', `dragging a window across the corner puts it on the other wall (${wall1.rec && wall1.rec.span})`);
+await pg.click('.tabs button[data-t=insp]');
+ok(await API((A) => A.S.sel && A.S.sel.kind === 'wall') && /right/.test(await pg.innerText('#p-insp')) && /moved from the left wall/.test(await pg.innerText('#p-insp')), 'the inspector shows it on the right wall, moved from the left');
+await pg.selectOption('#p-insp select[data-f=wside]', 'L');
+ok(await API((A) => !(A.doc.rooms.living.wall || []).some((r) => r.to)), 'the wall chooser puts it back, and the file keeps no trace');
+for (let i = 0; i < 5 && await API((A, [d]) => JSON.stringify(A.doc) !== d, docBefore); i++) await pg.keyboard.press('Control+z');   // back to exactly where the window started
+ok(await API((A) => { const w = A.cur.r.walls({ variant: 0, lampT: 0, flags: {} }, A.cur.r); return w.L.items.length; }) === wall0.nL, 'Undo takes the moves back');
 // the layout at one moment of the case
 await pg.click('.tabs button[data-t=insp]');
 await pg.selectOption('#moment', 'noor'); await pg.check('#onlyM');

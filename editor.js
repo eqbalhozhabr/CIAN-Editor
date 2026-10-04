@@ -104,7 +104,7 @@
       if (S.time) r.env.time = S.time;
       return { base, r };
     }
-    const wallsOf = (r) => { const w = r.walls({ variant: 0, lampT: 0, flags: {} }, r), out = []; for (const side of ['L', 'R']) { const seen = {}; for (const it of (w[side].items || [])) { const n = seen[it.name] = (seen[it.name] || 0) + 1; out.push({ key: side + ':' + it.name + (n > 1 ? '#' + n : ''), wall: side, name: it.name, u0: it.u0, u1: it.u1, z0: it.z0, z1: it.z1 }); } } return out; };
+    const wallsOf = (r) => { const w = r.walls({ variant: 0, lampT: 0, flags: {} }, r), out = []; for (const side of ['L', 'R']) { const seen = {}; for (const it of (w[side].items || [])) { const n = seen[it.name] = (seen[it.name] || 0) + 1; out.push({ key: it.key || side + ':' + it.name + (n > 1 ? '#' + n : ''), wall: side, name: it.name, u0: it.u0, u1: it.u1, z0: it.z0, z1: it.z1 }); } } return out; };
     const lampT = () => ($('lamp').checked ? 1 : 0);
     function sizeStage() {
       S.scale = Number($('scale').value);
@@ -242,12 +242,13 @@
         const f = floorAt(p);
         if (hit.kind === 'obj') { const o = momentMode() ? selObj() : (baseObj(hit.id) || selObj()); drag = { kind: 'obj', f, cell: [o.x, o.y], moved: false, before: key() }; }
         else if (hit.kind === 'item') { const it = momentMode() ? cur.r.items.find((i) => i.id === hit.id) : (baseItem(hit.id) || cur.r.items.find((i) => i.id === hit.id)), host = momentMode() ? cur.r.objects.find((o) => o.id === it.on) : (baseObj(it.on) || cur.r.objects.find((o) => o.id === it.on)); drag = host ? { kind: 'item', f, off: [it.x - host.x, it.y - host.y], moved: false, before: key() } : null; }
-        else { const w = wallList.find((i) => i.key === hit.id); drag = { kind: 'wall', u: wallU(w, p), span: [w.u0, w.u1], moved: false, before: key() }; }
+        else { const w = wallList.find((i) => i.key === hit.id); drag = { kind: 'wall', grab: wallAt(p, w.wall).u - w.u0, len: w.u1 - w.u0, moved: false, before: key() }; }
         if (drag) { $('stage').setPointerCapture(e.pointerId); $('stage').classList.add('drag'); }
       }
       render();
     };
-    const wallU = (w, p) => (w.wall === 'R' ? (p[0] - OX) / HW : (OX - p[0]) / HW);
+    // where along a wall the pointer is (u, in tiles); with no side given, the wall under it: right of the room's middle line is the right wall, left of it the left wall
+    const wallAt = (p, side) => { const sd = side || (p[0] >= OX ? 'R' : 'L'); return { side: sd, u: sd === 'R' ? (p[0] - OX) / HW : (OX - p[0]) / HW }; };
     $('stage').onpointermove = (e) => {
       const p = toEngine(e);
       if (drag) {
@@ -256,7 +257,7 @@
           const E = sel.kind !== 'wall' && momentMode() ? ed().at(S.moment) : ed();
           if (sel.kind === 'obj') { const f = floorAt(p); did = E.move(S.room, sel.id, [drag.cell[0] + f[0] - drag.f[0], drag.cell[1] + f[1] - drag.f[1]], snap); }
           else if (sel.kind === 'item') { const f = floorAt(p); did = E.moveItem(S.room, sel.id, [drag.off[0] + f[0] - drag.f[0], drag.off[1] + f[1] - drag.f[1]], 0.05); }
-          else { const w = wallList.find((i) => i.key === sel.id), d = wallU(w, p) - drag.u; did = ed().moveWall(S.room, sel.id, [Math.round((drag.span[0] + d) * 4) / 4, Math.round((drag.span[1] + d) * 4) / 4]); }
+          else { const at = wallAt(p), a0 = Math.round((at.u - drag.grab) * 4) / 4; did = ed().moveWallTo(S.room, sel.id, at.side, [a0, a0 + drag.len]); }   // across the corner it goes to the other wall
         };
         run();
         if (did && key() !== drag.before) { if (!drag.moved) { undo.push(drag.before); redo = []; drag.moved = true; } reapply(); render(false); renderInsp(); queueSave(); }
@@ -317,7 +318,8 @@
         const w = wallList.find((i) => i.key === sel.id);
         if (w) {
           const why = lockWhy(S.room, null, w.name);
-          h += `<h3>Wall item</h3><div class="row"><b>${esc(w.name)}</b><span class="badge ${why.length ? 'locked' : 'free'}">${why.length ? 'locked' : 'free'}</span></div><div class="note">${w.wall === 'R' ? 'right' : 'left'} wall &middot; ${esc(w.key)}</div>
+          h += `<h3>Wall item</h3><div class="row"><b>${esc(w.name)}</b><span class="badge ${why.length ? 'locked' : 'free'}">${why.length ? 'locked' : 'free'}</span></div><div class="note">${esc(w.key)}${w.wall !== w.key[0] ? ' (moved from the ' + (w.key[0] === 'R' ? 'right' : 'left') + ' wall)' : ''}. Drag it along the wall, or across the corner to the other wall.</div>
+            <div class="row"><label>wall</label><select data-f="wside"><option value="L"${w.wall === 'L' ? ' selected' : ''}>left</option><option value="R"${w.wall === 'R' ? ' selected' : ''}>right</option></select></div>
             <div class="row"><label>start</label><input type="number" step="0.25" data-f="wu" value="${+w.u0.toFixed(3)}"><label>length</label><span>${+(w.u1 - w.u0).toFixed(2)}</span></div>
             <h3>Look</h3>${why.length ? '<div class="note">Locked: a door or board the game uses.</div>' : `<div class="row"><button data-a="tolib">Pick from the library</button><button data-a="upload">Replace with my image&hellip;</button><button data-a="reset">Back to original</button></div><div class="note">A sprite is stretched to the item's size (1 pixel = 1/10 tile wide).</div>`}`;
         }
@@ -335,7 +337,7 @@
       el.innerHTML = h;
       for (const tr of el.querySelectorAll('tr.row2')) tr.onclick = () => { S.sel = { kind: tr.dataset.k, id: tr.dataset.id }; render(); };
       for (const b of el.querySelectorAll('[data-a]')) b.onclick = () => act(b.dataset.a, b.dataset);
-      for (const i of el.querySelectorAll('input[data-f]')) i.onchange = () => field(i.dataset.f);
+      for (const i of el.querySelectorAll('input[data-f], select[data-f]')) i.onchange = () => field(i.dataset.f);
     }
     function field(f) {
       const v = (n) => Number(el$(n).value), el$ = (n) => $('p-insp').querySelector(`[data-f=${n}]`), sel = S.sel;
@@ -343,8 +345,9 @@
         if (f === 'cx' || f === 'cy') return E.move(S.room, sel.id, [v('cx'), v('cy')], 0.05);
         if (f === 'fw' || f === 'fd') return E.resize(S.room, sel.id, [v('fw'), v('fd')]);
         if (f === 'ix' || f === 'iy') return E.moveItem(S.room, sel.id, [v('ix'), v('iy')], 0.05);
-        if (f === 'wu') { const w = wallList.find((i) => i.key === sel.id), d = v('wu') - w.u0; return E.moveWall(S.room, sel.id, [w.u0 + d, w.u1 + d]); }
-      }, f === 'wu');
+        if (f === 'wu') { const w = wallList.find((i) => i.key === sel.id), d = v('wu') - w.u0; return E.moveWallTo(S.room, sel.id, w.wall, [w.u0 + d, w.u1 + d]); }
+        if (f === 'wside') { const w = wallList.find((i) => i.key === sel.id); return E.moveWallTo(S.room, sel.id, $('p-insp').querySelector('[data-f=wside]').value, [w.u0, w.u1]); }
+      }, f === 'wu' || f === 'wside');
     }
     function act(a, data) {
       const sel = S.sel;
