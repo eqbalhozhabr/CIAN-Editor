@@ -201,8 +201,6 @@ await pg.click('#bSave');
 const draft = await pg.evaluate(() => JSON.parse(localStorage.getItem('nutshell.draft.monday-nine')));
 ok(draft && draft.sprites && draft.sprites['my-tree'] && draft.sprites['my-floor'] && draft.rooms.living.objects.some((r) => r.look && r.look.sprite === 'my-tree') && draft.rooms.living.room.floor.sprite === 'my-floor', 'Save draft keeps the layout and the pictures it uses in this browser');
 if (!process.env.NO_PLAY) {   // (the game that is already live does not know ?layout=draft yet)
-  // the game's entry gate shuts every case after the first until the player types the code: unlock this case the way a returning player has (same storage)
-  const gp = await ctx.newPage(); await gp.goto(URL0 + 'monday-nine/'); await gp.evaluate(() => { const G = window.NUT_GATE && window.NUT_GATE.gate; if (G) localStorage.setItem('nutshell:unlocked:' + G.id, G.code); }); await gp.close();
   const popup = ctx.waitForEvent('page'); await pg.click('#bPlay'); const game = await popup;
   await game.waitForLoadState('load'); await game.waitForTimeout(800);
   const gs = await game.evaluate(() => ({ room: NUT.S.room, plant: ROOMS.living.objects.find((o) => o.id === 'plant5').t, floor: (NUT_LAYOUT.state.shipped, JSON.parse(localStorage.getItem('nutshell.draft.monday-nine')).rooms.living.room.floor.sprite) }));
