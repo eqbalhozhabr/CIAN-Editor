@@ -15,7 +15,7 @@ const load = () => {
 };
 const { chromium } = load();
 fs.mkdirSync('out/shots', { recursive: true });
-if (!process.env.NO_ASSEMBLE && !process.env.SITE_ROOT) execSync('node scripts/assemble.mjs', { stdio: 'inherit' });
+if (!process.env.NO_ASSEMBLE && !process.env.SITE_ROOT) execSync('node scripts/assemble.mjs', { stdio: 'inherit', env: { ...process.env, WITH_ARCHIVE: process.env.WITH_ARCHIVE ?? '1' } });   // the tests open monday-nine and others: the game's archived cases are built too (it ships only its current case)
 const BASE = '/case-in-a-nutshell/', ROOT = path.resolve(process.env.SITE_ROOT || 'out/site');   // SITE_ROOT: a folder laid out like the site's public/case-in-a-nutshell/ (with editor/ in it)
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png' };
 const server = http.createServer((req, res) => {   // the assembled folder, mounted under /case-in-a-nutshell/ like the studio site does

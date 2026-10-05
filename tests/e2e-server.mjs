@@ -13,7 +13,7 @@ const load = () => { for (const p of ['playwright', process.env.PLAYWRIGHT_PATH,
 const { chromium } = load();
 const SITE = path.resolve(process.env.SITE_REPO || '../luckylion-website');
 const { startLocal } = await import(pathToFileURL(path.join(SITE, 'worker/tests/local-server.mjs')).href);
-if (!process.env.NO_ASSEMBLE) execSync('node scripts/assemble.mjs', { stdio: 'inherit' });
+if (!process.env.NO_ASSEMBLE) execSync('node scripts/assemble.mjs', { stdio: 'inherit', env: { ...process.env, WITH_ARCHIVE: process.env.WITH_ARCHIVE ?? '1' } });   // the tests open monday-nine and others: the game's archived cases are built too (it ships only its current case)
 
 // the site as Cloudflare would have it: public/case-in-a-nutshell/ = the game + editor/ (with the config that points at the server)
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'site-'));
