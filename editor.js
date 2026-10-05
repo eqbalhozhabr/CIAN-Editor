@@ -416,6 +416,104 @@
         cv.style.width = cv.width * scale + 'px'; cv.style.height = cv.height * scale + 'px';
       } catch (e) { /* a person that cannot be drawn here: an empty frame */ }
     }
+
+    /* ---------- the pencil and the eraser in the Cast tab: a drawing over one view of a person (small portrait, figure in the rooms, big portrait) ---------- */
+    const PAINT = { tool: 'pencil', color: '#c0603a', mirror: false, lock: true, zoom: 0, compare: false, mood: false, grid: true };
+    const hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+    const gamePalette = () => [...new Set(Object.values(BASE_PAL).filter((c) => /^#[0-9a-f]{6}$/i.test(c)).map((c) => c.toLowerCase()))];
+    const nearestColour = (h, list) => { const a = hexRgb(h); let best = list[0], bd = 1e9; for (const c of list) { const b = hexRgb(c), d = (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2; if (d < bd) { bd = d; best = c; } } return best; };
+    const castKey = (view) => (view === 'big' && PAINT.mood ? 'big:' + (S.castMood || 'normal') : view);
+    /* what the view draws on its own, as RGBA in the size of its patch (room: a box around the feet) */
+    function paintBase(view, sp) {
+      const b = NUT_CAST.PAINT_BOX[view], tmp = document.createElement('canvas');
+      if (view === 'room') {
+        const look = Object.assign({}, sp.look || {}), t = NUT_LIBRARY.thumb('npc', { w: 0.7, d: 0.7, props: { look } }), rgba = new Uint8ClampedArray(b.w * b.h * 4);
+        if (t) for (let y = 0; y < t.h; y++) for (let x = 0; x < t.w; x++) { const bx = x - t.fx - b.ox, by = y - t.fy - b.oy; if (bx < 0 || by < 0 || bx >= b.w || by >= b.h) continue; for (let k = 0; k < 4; k++) rgba[(by * b.w + bx) * 4 + k] = t.rgba[(y * t.w + x) * 4 + k]; }
+        return { w: b.w, h: b.h, rgba, bg: null };
+      }
+      const bg = view === 'small' ? '#3a3552' : null;
+      if (view === 'small') drawPortrait(tmp, Object.assign({}, sp.small)); else drawBigPortrait(tmp, Object.assign({}, sp.big), S.castMood || 'normal');
+      return { w: b.w, h: b.h, rgba: tmp.getContext('2d').getImageData(0, 0, b.w, b.h).data, bg };
+    }
+    /* the base with patches laid over it (and the strokes not saved yet): what the person will look like */
+    function paintCompose(base, patches, pending) {
+      const out = new Uint8ClampedArray(base.rgba), bgc = base.bg ? hexRgb(base.bg) : null;
+      const put = (i, v, pal) => {
+        if (v === '.') return;
+        if (v === '-') { if (bgc) { out[i * 4] = bgc[0]; out[i * 4 + 1] = bgc[1]; out[i * 4 + 2] = bgc[2]; out[i * 4 + 3] = 255; } else out[i * 4 + 3] = 0; return; }
+        const c = hexRgb(pal[parseInt(v, 36)] || '#000000'); out[i * 4] = c[0]; out[i * 4 + 1] = c[1]; out[i * 4 + 2] = c[2]; out[i * 4 + 3] = 255;
+      };
+      for (const p of patches) if (p) for (let i = 0; i < p.px.length; i++) put(i, p.px[i], p.pal);
+      const origin = (i) => Array.from(base.rgba.slice(i * 4, i * 4 + 4));
+      if (pending) for (const [i, v] of pending) {
+        if (v === 'restore') { out.set(origin(i), i * 4); continue; }
+        if (v === 'erase') put(i, '-', []); else { const c = hexRgb(v); out[i * 4] = c[0]; out[i * 4 + 1] = c[1]; out[i * 4 + 2] = c[2]; out[i * 4 + 3] = 255; }
+      }
+      return out;
+    }
+    const ownColours = (ops, ch, view) => [...new Set(['skin', 'hair', 'top', 'collar', 'pants', 'cap', 'hat', 'scarf', 'beard', 'mustache'].map((k) => ops.effective(ch.id, k, view)).filter((v) => /^#[0-9a-f]{6}$/i.test(v || '')).map((v) => v.toLowerCase()))];
+    function paintHtml(cx) {
+      const { ch, view } = cx, own = ownColours(cx.ops, ch, view);
+      const sw = (c) => `<button class="sw${c === PAINT.color ? ' on' : ''}" data-sw="${c}" style="background:${c}" title="${c}"></button>`;
+      const b = NUT_CAST.PAINT_BOX[view], z = PAINT.zoom || ({ small: 10, big: 6, room: 8 })[view];
+      return `<h3>Draw on ${view === 'room' ? 'the figure in the rooms' : view === 'small' ? 'the small portrait' : 'the big portrait'}</h3>
+        <div class="row ptools">${[['pencil', 'Pencil'], ['eraser', 'Eraser'], ['restore', 'Restore'], ['pick', 'Pick']].map(([t, n]) => `<button data-pt="${t}" class="${PAINT.tool === t ? 'on' : ''}" title="${{ pencil: 'draws a pixel', eraser: 'takes a pixel away, yours or the person\'s own', restore: 'gives a pixel back to what the person looks like without your drawing', pick: 'takes the colour of a pixel' }[t]}">${n}</button>`).join('')}
+          <label><input type="checkbox" id="pMir" ${PAINT.mirror ? 'checked' : ''}> mirror</label><label><input type="checkbox" id="pGrid" ${PAINT.grid ? 'checked' : ''}> grid</label>
+          <select id="pZoom">${[4, 5, 6, 8, 10].map((v) => `<option${v === z ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
+        <div class="paintwrap" style="width:${b.w * z}px;height:${b.h * z}px"><canvas id="pcv" width="${b.w}" height="${b.h}" style="width:${b.w * z}px;height:${b.h * z}px"></canvas>${PAINT.grid && z >= 5 ? `<div class="pgrid" style="background-size:${z}px ${z}px"></div>` : ''}</div>
+        <div class="row"><input type="color" id="pCol" value="${PAINT.color}"${PAINT.lock ? ' disabled title="Switch the palette lock off to pick any colour"' : ''}><label><input type="checkbox" id="pLock" ${PAINT.lock ? 'checked' : ''}> only colours of the game</label></div>
+        <div class="swatches" title="this person">${[...new Set(own)].map(sw).join('')}</div>
+        <div class="swatches" title="the game's palette">${gamePalette().map(sw).join('')}</div>
+        ${view === 'big' ? `<div class="row"><label>drawing for</label><select id="pOn"><option value="">every mood</option><option value="1"${PAINT.mood ? ' selected' : ''}>only "${esc(S.castMood || 'normal')}" (pick the mood under the portrait above)</option></select></div>` : ''}
+        <div class="row"><label><input type="checkbox" id="pCmp" ${PAINT.compare ? 'checked' : ''}> show it without my drawing</label><button id="pClear" ${cx.ops.paintKeys(ch.id).some((k) => k === view || (view === 'big' && /^big:/.test(k))) ? '' : 'disabled'}>Clear my drawing</button></div>
+        <div class="note">Your drawing sits over the person: change their colours or hair underneath and it stays. The eraser takes away any pixel, restore gives it back. It is saved with the layout and appears in the game exactly like this.</div>`;
+    }
+    function wirePaint(cx) {
+      const { el, ops, ch, view, sp } = cx, b = NUT_CAST.PAINT_BOX[view], cv = $('pcv'), z = PAINT.zoom || ({ small: 10, big: 6, room: 8 })[view];
+      const base = paintBase(view, sp), keyNow = () => castKey(view), allowed = () => [...new Set(gamePalette().concat(ownColours(ops, ch, view)))];
+      const patchesNow = () => { const all = [ops.paintGet(ch.id, view === 'big' ? 'big' : view)]; if (view === 'big') all.push(ops.paintGet(ch.id, 'big:' + (S.castMood || 'normal'))); return PAINT.compare ? [] : all; };
+      let pending = null;
+      const draw = () => { const x = cv.getContext('2d'); x.putImageData(new ImageData(paintCompose(base, patchesNow(), pending), b.w, b.h), 0, 0); };
+      draw();
+      for (const t of el.querySelectorAll('[data-pt]')) t.onclick = () => { PAINT.tool = t.dataset.pt; renderCastTab(); };
+      for (const w of el.querySelectorAll('[data-sw]')) w.onclick = () => { PAINT.color = w.dataset.sw; if (PAINT.tool === 'eraser' || PAINT.tool === 'restore' || PAINT.tool === 'pick') PAINT.tool = 'pencil'; renderCastTab(); };
+      $('pCol').onchange = () => { PAINT.color = PAINT.lock ? nearestColour($('pCol').value, allowed()) : $('pCol').value; renderCastTab(); };
+      $('pLock').onchange = () => { PAINT.lock = $('pLock').checked; if (PAINT.lock) PAINT.color = nearestColour(PAINT.color, allowed()); renderCastTab(); };
+      $('pMir').onchange = () => { PAINT.mirror = $('pMir').checked; };
+      $('pGrid').onchange = () => { PAINT.grid = $('pGrid').checked; renderCastTab(); };
+      $('pZoom').onchange = () => { PAINT.zoom = Number($('pZoom').value); renderCastTab(); };
+      $('pCmp').onchange = () => { PAINT.compare = $('pCmp').checked; renderCastTab(); };
+      if ($('pOn')) $('pOn').onchange = () => { PAINT.mood = !!$('pOn').value; renderCastTab(); };
+      $('pClear').onclick = () => { if (confirm('Take your drawing off this view?')) mutate((E) => { let any = false; for (const k of E.cast.paintKeys(ch.id)) if (k === view || (view === 'big' && /^big:/.test(k))) any = E.cast.paintClear(ch.id, k) || any; return any; }, true); };
+      /* strokes: one pointer down to up is one change, so Undo takes a whole stroke back */
+      const at = (e) => { const r = cv.getBoundingClientRect(); return [Math.floor((e.clientX - r.left) / z), Math.floor((e.clientY - r.top) / z)]; };
+      const cells = (x0, y0, x1, y1) => { const out = [], n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1); for (let i = 0; i <= n; i++) out.push([Math.round(x0 + (x1 - x0) * i / n), Math.round(y0 + (y1 - y0) * i / n)]); return out; };
+      let last = null;
+      const stamp = (x, y) => {
+        for (const [px, py] of PAINT.mirror ? [[x, y], [b.w - 1 - x, y]] : [[x, y]]) {
+          if (px < 0 || py < 0 || px >= b.w || py >= b.h) continue;
+          pending.set(py * b.w + px, PAINT.tool === 'pencil' ? PAINT.color : PAINT.tool === 'eraser' ? 'erase' : 'restore');
+        }
+      };
+      cv.onpointerdown = (e) => {
+        if (PAINT.compare) return;
+        const [x, y] = at(e);
+        if (PAINT.tool === 'pick') {
+          const px = paintCompose(base, patchesNow(), null), i = y * b.w + x;
+          if (x >= 0 && y >= 0 && x < b.w && y < b.h && px[i * 4 + 3]) { const h = '#' + [0, 1, 2].map((k) => px[i * 4 + k].toString(16).padStart(2, '0')).join(''); PAINT.color = PAINT.lock ? nearestColour(h, allowed()) : h; PAINT.tool = 'pencil'; renderCastTab(); }
+          return;
+        }
+        cv.setPointerCapture(e.pointerId); pending = new Map(); last = [x, y]; stamp(x, y); draw();
+      };
+      cv.onpointermove = (e) => { if (!pending) return; const [x, y] = at(e); for (const [cx2, cy2] of cells(last[0], last[1], x, y)) stamp(cx2, cy2); last = [x, y]; draw(); };
+      const done = () => {
+        if (!pending) return;
+        const list = [...pending].map(([i, v]) => [i % b.w, (i / b.w) | 0, v]); pending = null;
+        if (!mutate((E) => E.cast.paintSet(ch.id, keyNow(), list), true)) draw();
+      };
+      cv.onpointerup = done; cv.onpointercancel = done;
+    }
+
     function renderCastTab() {
       const el = $('p-cast');
       if (!hasCast()) { el.innerHTML = '<div class="note">This build of the game has no character editor yet.</div>'; return; }
@@ -424,7 +522,7 @@
       if (!S.castId || !chars.some((c) => c.id === S.castId)) S.castId = chars[0].id;
       const ch = chars.find((c) => c.id === S.castId), rec = ops.get(ch.id) || {}, shows = { small: ch.small, big: ch.big, room: ch.stands.length > 0 };
       if (!S.castView || (S.castView !== 'all' && !shows[S.castView])) S.castView = 'all';
-      const view = S.castView, vk = ch.id + ':' + view, ovOn = view !== 'all' && (castOv.has(vk) || !!(rec.views && rec.views[view] && Object.keys(rec.views[view]).length)), editable = view === 'all' || ovOn;
+      const view = S.castView, vk = ch.id + ':' + view, hasOv = !!(rec.views && rec.views[view] && Object.keys(rec.views[view]).length) || ops.paintKeys(ch.id).some((k) => k === view || (view === 'big' && /^big:/.test(k))), ovOn = view !== 'all' && (castOv.has(vk) || hasOv), editable = view === 'all' || ovOn;
       const sp = NUT_CAST.specs(ch.id, ROOMS, CASE, doc), V = view === 'all' ? null : view;
       const hex = (v) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v.toLowerCase() : '#888888');
       const fields = Object.entries(NUT_CAST.FIELDS).filter(([, f]) => (view === 'all' ? f.views.some((v) => shows[v]) : f.views.includes(view)));
@@ -448,16 +546,17 @@
         <div class="prevs">${ch.small ? '<figure><canvas id="cpS"></canvas><figcaption>small</figcaption></figure>' : ''}${shows.room ? '<figure><canvas id="cpR"></canvas><figcaption>in the rooms</figcaption></figure>' : ''}${ch.big ? `<figure><canvas id="cpB"></canvas><figcaption><select id="cpM">${CAST_MOODS.map((m) => `<option${m === S.castMood ? ' selected' : ''}>${m}</option>`).join('')}</select></figcaption></figure>` : ''}</div>
         <div class="row vtabs">${CAST_VIEWS.filter(([v]) => v === 'all' || shows[v]).map(([v, n]) => `<button data-cv="${v}" class="${v === view ? 'on' : ''}">${n}${rec.views && rec.views[v] && Object.keys(rec.views[v]).length ? ' •' : ''}</button>`).join('')}</div>
         ${view === 'all' ? '<div class="note">Whatever you change here reaches every view that can show it (S small, R rooms, B big: the letters on each line). To change one view only, pick it above and switch on Override.</div>'
-          : `<div class="row"><label><input type="checkbox" id="cOv" ${ovOn ? 'checked' : ''}${rec.views && rec.views[view] && Object.keys(rec.views[view]).length ? ' disabled' : ''}> Override this view</label></div>
+          : `<div class="row"><label><input type="checkbox" id="cOv" ${ovOn ? 'checked' : ''}${hasOv ? ' disabled' : ''}> Override this view</label></div>
              <div class="note">${ovOn ? 'Changes below belong to this view alone; the other views do not see them. "share" gives one to every view.' : 'Off: this view shows the shared edits. Switch Override on to give it a look of its own.'}</div>`}
+        ${view !== 'all' && ovOn ? paintHtml({ ops, ch, view, sp }) : (view !== 'all' ? '<div class="note">Switch Override on to draw on this view.</div>' : '')}
         ${fields.map(row).join('')}
         ${ch.kind !== 'figure' && figs.length ? `<h3>Figure in the rooms</h3><div class="row"><label>this person is</label><select id="cLink"><option value="">the figure called "${esc(ch.id)}"${ch.stands.length ? '' : ' (none in the rooms)'}</option>${figs.map((f) => `<option value="${esc(f.id)}"${rec.npc === f.id ? ' selected' : ''}>the figure called "${esc(f.id)}"</option>`).join('')}</select></div><div class="note">When the figure in the rooms has another name than the person (a constable who is Brenner), say so here and they become one.</div>` : ''}
-        <div class="row"><button data-a="creset" ${rec.fields || rec.views || rec.npc ? '' : 'disabled'}>Back to what the case has</button>${view !== 'all' && rec.views && rec.views[view] ? '<button data-a="cresetview">Drop this view\'s override</button>' : ''}</div>`;
+        <div class="row"><button data-a="creset" ${rec.fields || rec.views || rec.npc || rec.paint ? '' : 'disabled'}>Back to what the case has</button>${view !== 'all' && hasOv ? '<button data-a="cresetview">Drop this view\'s override and drawing</button>' : ''}</div>`;
       for (const cv of el.querySelectorAll('canvas[data-cp]')) { const c2 = chars.find((c) => c.id === cv.dataset.cp), s2 = NUT_CAST.specs(c2.id, ROOMS, CASE, doc); if (s2.small) castThumb(cv, 'small', s2.small, null, 2); else castThumb(cv, 'room', s2.look || {}, null, 1); }
       if ($('cpS')) castThumb($('cpS'), 'small', sp.small, null, 4);
       if ($('cpR')) castThumb($('cpR'), 'room', sp.look || {}, null, 3);
       if ($('cpB')) castThumb($('cpB'), 'big', sp.big, S.castMood || 'normal', 3);
-      if ($('cpM')) $('cpM').onchange = () => { S.castMood = $('cpM').value; castThumb($('cpB'), 'big', sp.big, S.castMood, 3); };
+      if ($('cpM')) $('cpM').onchange = () => { S.castMood = $('cpM').value; renderCastTab(); };
       for (const b of el.querySelectorAll('[data-cid]')) b.onclick = () => { S.castId = b.dataset.cid; renderCastTab(); };
       for (const b of el.querySelectorAll('[data-cv]')) b.onclick = () => { S.castView = b.dataset.cv; renderCastTab(); };
       if ($('cOv')) $('cOv').onchange = () => { if ($('cOv').checked) castOv.add(vk); else castOv.delete(vk); renderCastTab(); };
@@ -467,6 +566,7 @@
       for (const b of el.querySelectorAll('[data-clr]')) b.onclick = () => mutate((E) => E.cast.clear(ch.id, b.dataset.clr, V), true);
       for (const b of el.querySelectorAll('[data-share]')) b.onclick = () => mutate((E) => E.cast.share(ch.id, b.dataset.share, view), true);
       if ($('cLink')) $('cLink').onchange = () => mutate((E) => E.cast.link(ch.id, $('cLink').value || null), true);
+      if (view !== 'all' && ovOn) wirePaint({ el, ops, ch, view, sp });
       const rs = el.querySelector('[data-a=creset]'); if (rs) rs.onclick = () => { if (confirm('Take every change to ' + ch.id + ' back to what the case has?')) mutate((E) => E.cast.reset(ch.id), true); };
       const rv = el.querySelector('[data-a=cresetview]'); if (rv) rv.onclick = () => { castOv.delete(vk); mutate((E) => E.cast.resetView(ch.id, view), true); };
     }

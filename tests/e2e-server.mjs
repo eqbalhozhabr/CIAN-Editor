@@ -86,14 +86,15 @@ const cpg = errorsOf(await ctx.newPage()); await cpg.goto(ED + '?case=three-days
 await cpg.click('.tabs button[data-t=cast]'); await cpg.click('[data-cid=emil]');
 await cpg.$eval('input[data-f=skin]', (e) => { e.value = '#a06a4a'; e.dispatchEvent(new Event('change', { bubbles: true })); });
 await cpg.waitForFunction(() => /saved to the server/.test(document.getElementById('state').textContent), null, { timeout: 8000 });
-const cd = await api(cpg, 'GET', 'layout/three-days-after'); ok(cd.status === 200 && cd.data.draft && cd.data.draft.doc.cast && cd.data.draft.doc.cast.emil.fields.skin === '#a06a4a', 'a change to a person is saved on the server with the draft');
+await cpg.evaluate(() => NUT_EDITOR_API.mutate((E) => E.cast.paintSet('emil', 'small', [[1, 1, '#ff0000'], [2, 1, 'erase']]), true));
+let cd = null; for (let i = 0; i < 40; i++) { cd = await api(cpg, 'GET', 'layout/three-days-after'); if (cd.data && cd.data.draft && cd.data.draft.doc.cast && cd.data.draft.doc.cast.emil && cd.data.draft.doc.cast.emil.paint) break; await cpg.waitForTimeout(250); } ok(cd.status === 200 && cd.data.draft && cd.data.draft.doc.cast && cd.data.draft.doc.cast.emil.fields.skin === '#a06a4a' && cd.data.draft.doc.cast.emil.paint.small.px.length === 672, 'a change to a person and a drawing on them are saved on the server with the draft');
 await cpg.click('#bPub'); await cpg.waitForSelector('#dlg[open]'); await cpg.fill('#pLabel', 'Emil, darker'); await cpg.click('#pGo');
 await cpg.waitForFunction(() => /published/.test(document.getElementById('state').textContent), null, { timeout: 8000 });
 const cj = await (await fetch(S.url + '/case-in-a-nutshell/api/layout/three-days-after.js')).text();
-ok(/"cast":\{"emil":/.test(cj) && /#a06a4a/.test(cj), 'Publish puts the cast in what the public endpoint serves');
+ok(/"cast":\{"emil":/.test(cj) && /#a06a4a/.test(cj) && /"paint":\{"small"/.test(cj), 'Publish puts the cast and the drawing in what the public endpoint serves');
 const cg = errorsOf(await (await browser.newContext()).newPage()); await cg.goto(S.url + '/case-in-a-nutshell/three-days-after/'); await cg.waitForTimeout(800);
-const seen = await cg.evaluate(() => ({ small: CASE.suspects.find((x) => x.id === 'emil').portrait.skin, source: NUT_LAYOUT.state.source }));
-ok(seen.source === 'published' && seen.small === '#a06a4a', 'a player\'s game draws Emil with the published skin');
+const seen = await cg.evaluate(() => { const pt = CASE.suspects.find((x) => x.id === 'emil').portrait, cv = document.createElement('canvas'); drawPortrait(cv, pt); return { small: pt.skin, source: NUT_LAYOUT.state.source, red: Array.from(cv.getContext('2d').getImageData(1, 1, 1, 1).data) }; });
+ok(seen.source === 'published' && seen.small === '#a06a4a' && seen.red.slice(0, 3).join() === '255,0,0', 'a player\'s game draws Emil with the published skin and the published drawing');
 ok(!cg.errors.length && !cpg.errors.length, 'and runs without errors ' + cg.errors.concat(cpg.errors).join(' | '));
 // signing out
 await pg.click('#bOut'); await pg.waitForSelector('#f'); ok(true, 'Sign out brings the sign-in form back');

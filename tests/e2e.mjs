@@ -252,6 +252,55 @@ if (manifest.cases.some((c) => c.slug === 'three-days-after')) {
   await cp.evaluate(() => document.activeElement && document.activeElement.blur());
   for (let i = 0; i < 12 && await CA((A) => !!A.doc.cast); i++) await cp.keyboard.press('Control+z');
   ok(await CA((A, a) => !A.doc.cast && ROOMS.yard.objects.find((o) => o.hot === 'constable').look.coat === a[0], coat0), 'Undo takes every change back, the figure included');
+  // the pencil and the eraser
+  console.log('drawing (the pencil and the eraser)');
+  await cp.click('.tabs button[data-t=cast]'); await cp.click('[data-cid=emil]'); await cp.click('[data-cv=small]');
+  ok(!(await cp.$('#pcv')), 'the drawing window needs Override first');
+  await cp.check('#cOv');
+  ok(await cp.isVisible('#pcv'), 'with Override on the person can be drawn on');
+  const Z = 10, canvasPx = (sel, x, y) => cp.$eval(sel, (c, [x, y]) => Array.from(c.getContext('2d').getImageData(x, y, 1, 1).data), [x, y]);
+  const where = async (x, y) => { const b = await cp.locator('#pcv').boundingBox(); return [b.x + (x + 0.5) * Z, b.y + (y + 0.5) * Z]; };
+  const sw = cp.locator('.swatches').nth(1).locator('[data-sw]').nth(3), colour = await sw.getAttribute('data-sw'), rgb = [1, 3, 5].map((i) => parseInt(colour.slice(i, i + 2), 16));
+  await sw.click();
+  let a = await where(2, 2), b2 = await where(6, 2);
+  await cp.mouse.move(...a); await cp.mouse.down(); await cp.mouse.move(...b2, { steps: 4 }); await cp.mouse.up();
+  const sm = await CA((A) => A.doc.cast.emil.paint.small);
+  ok(sm && sm.w === 24 && sm.h === 28 && sm.pal[0] === colour && [2, 3, 4, 5, 6].every((x) => sm.px[2 * 24 + x] === '0') && sm.px[2 * 24 + 7] === '.', 'one stroke of the pencil paints a line of pixels and nothing else');
+  ok((await canvasPx('#pcv', 4, 2)).slice(0, 3).join() === rgb.join() && (await canvasPx('#cpS', 4, 2)).slice(0, 3).join() === rgb.join(), 'the drawing window and the small preview both show it');
+  await cp.click('[data-pt=eraser]');
+  a = await where(12, 18); await cp.mouse.click(...a);
+  ok(await CA((A) => A.doc.cast.emil.paint.small.px[18 * 24 + 12] === '-') && (await canvasPx('#cpS', 12, 18)).slice(0, 3).join() === '58,53,82', 'the eraser takes a pixel of the portrait away (the background shows)');
+  await cp.click('[data-pt=pencil]'); await cp.check('#pMir');
+  a = await where(3, 10); await cp.mouse.click(...a);
+  ok(await CA((A) => { const p = A.doc.cast.emil.paint.small.px; return p[10 * 24 + 3] !== '.' && p[10 * 24 + 20] !== '.'; }), 'mirror draws the pixel on both sides');
+  await cp.uncheck('#pMir');
+  await cp.evaluate(() => document.activeElement && document.activeElement.blur()); await cp.keyboard.press('Control+z');
+  ok(await CA((A) => { const p = A.doc.cast.emil.paint.small.px; return p[10 * 24 + 3] === '.' && p[10 * 24 + 20] === '.' && p[2 * 24 + 4] === '0' && p[18 * 24 + 12] === '-'; }), 'Undo takes the last stroke back and keeps the ones before it');
+  ok(await cp.$eval('#pCol', (e) => e.disabled), 'the free colour picker is off while the palette is locked');
+  await cp.uncheck('#pLock'); await cp.$eval('#pCol', (e) => { e.value = '#123456'; e.dispatchEvent(new Event('change', { bubbles: true })); });
+  ok((await cp.$eval('#pCol', (e) => e.value)) === '#123456', 'with the lock off any colour can be picked');
+  await cp.check('#pLock');
+  ok((await cp.$eval('#pCol', (e) => e.value)) !== '#123456', 'and switching the lock on again moves it to the nearest colour of the game');
+  await cp.check('#pCmp');
+  const before = await CA((A) => JSON.stringify(A.doc.cast.emil.paint));
+  a = await where(8, 8); await cp.mouse.click(...a);
+  ok((await CA((A) => JSON.stringify(A.doc.cast.emil.paint))) === before, '"show it without my drawing" is a look, not a tool');
+  await cp.uncheck('#pCmp');
+  // the figure in the rooms and the big portrait
+  await cp.click('[data-cv=room]'); await cp.check('#cOv');
+  ok((await cp.$eval('#pcv', (c) => [c.width, c.height])).join() === '32,64', 'the figure in the rooms has a box of its own around the feet');
+  await cp.click('[data-pt=pencil]');
+  { const bx = await cp.locator('#pcv').boundingBox(); await cp.mouse.click(bx.x + (10 + 0.5) * 8, bx.y + (30 + 0.5) * 8); }
+  ok(await CA((A) => { const p = A.doc.cast.emil.paint.room; return p && p.ox === -16 && p.oy === -56 && p.px[30 * 32 + 10] !== '.'; }), 'a pixel on the figure is saved relative to its feet');
+  ok(await CA((A) => { for (const rid of Object.keys(ROOMS)) { const o = ROOMS[rid].objects.find((q) => q.t === 'npc' && q.hot === 'emil'); if (o) return !!o.look.__paint; } return false; }), 'and the engine draws it on the figure wherever the person stands');
+  await cp.click('[data-cv=big]'); await cp.check('#cOv');
+  await cp.selectOption('#cpM', 'shaken'); await cp.selectOption('#pOn', '1');
+  { const bx = await cp.locator('#pcv').boundingBox(); await cp.mouse.click(bx.x + (20 + 0.5) * 6, bx.y + (20 + 0.5) * 6); }
+  ok(await CA((A) => Object.keys(A.doc.cast.emil.paint).sort().join() === 'big:shaken,room,small'), 'a drawing on the big portrait can belong to one mood only');
+  await cp.click('#pClear');
+  ok(await CA((A) => Object.keys(A.doc.cast.emil.paint).sort().join() === 'room,small'), 'Clear takes the drawing off that view');
+  await cp.click('[data-a=creset]');
+  ok(await CA((A) => !A.doc.cast), 'and "Back to what the case has" takes every drawing and edit of the person away');
   await CA((A) => { A.S.sel = { kind: 'obj', id: 'constable' }; A.render(); });
   await cp.click('.tabs button[data-t=insp]');
   ok(await cp.isVisible('#p-insp [data-a=tocast]'), 'a person selected in the room offers to be edited in Cast');
