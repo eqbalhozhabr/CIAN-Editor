@@ -38,6 +38,11 @@
   .note { color: var(--dim); font-size: 12.5px; } ul.w { margin: 0; padding-left: 18px; } li.warn { color: #ffb3ab; } li.ok { color: var(--ok); list-style: none; margin-left: -18px; } li.info { color: var(--dim); } li.error { color: var(--warn); }
   dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; max-width: 640px; width: 92vw; padding: 16px; } dialog::backdrop { background: #000a; } dialog h2 { margin: 0 0 10px; font-size: 16px; } dialog .pv { display: flex; gap: 14px; flex-wrap: wrap; } dialog .pv canvas { image-rendering: pixelated; background: #1a1724; border: 1px solid var(--line); border-radius: 6px; max-width: 280px; max-height: 280px; }
   dialog .foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+  .people { display: flex; flex-wrap: wrap; gap: 6px; } .pbtn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; font-size: 11px; } .pbtn.on { outline: 2px solid var(--accent); } .pbtn canvas { image-rendering: pixelated; background: #1a1724; border-radius: 4px; max-width: 54px; max-height: 60px; }
+  .prevs { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin: 6px 0 10px; } .prevs figure { margin: 0; text-align: center; } .prevs canvas { image-rendering: pixelated; background: #1a1724; border-radius: 6px; display: block; margin: 0 auto 2px; } .prevs figcaption { font-size: 11px; color: var(--dim); } .prevs select { font-size: 11px; padding: 0 2px; }
+  .vtabs { gap: 4px; } .vtabs button { padding: 3px 8px; } .vtabs button.on { background: var(--accent); color: #231c0e; border-color: var(--accent); }
+  .crow { gap: 6px; padding: 1px 4px; border-left: 3px solid transparent; } .crow label { min-width: 7em; } .crow.edited { border-left-color: var(--accent); } .crow.mine { border-left-color: var(--locked); }
+  .crow input[type=color] { width: 2.6em; height: 1.7em; padding: 0; } .mini { font-size: 11px; padding: 0 6px; } .vts { margin-left: auto; display: inline-flex; gap: 2px; } .vt { font-style: normal; font-size: 9px; padding: 0 3px; border-radius: 3px; color: #5d5775; border: 1px solid #3c3650; } .vt.on { color: var(--ink); border-color: var(--dim); }
   #empty, #err { padding: 24px; color: var(--dim); }
   @media (max-width: 1100px) { #app { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; } aside, main, #bar { grid-column: 1 !important; grid-row: auto !important; } aside { max-height: 50vh; } }
 </style>
@@ -63,9 +68,10 @@
     <div class="row"><label>Reference image</label><input type="file" id="ref" accept="image/*"><label>room opacity</label><input type="range" id="rOp" min="10" max="100" value="100"><label>ref scale</label><input type="range" id="rSc" min="10" max="300" value="100"><label>x</label><input type="range" id="rX" min="-600" max="600" value="0"><label>y</label><input type="range" id="rY" min="-600" max="600" value="0"><button id="rClear" type="button">remove</button></div>
   </main>
   <aside id="right" class="right">
-    <div class="tabs"><button data-t="insp" class="on">Selected</button><button data-t="room">Room</button><button data-t="lib">Library</button><button data-t="chk">Checks</button><button data-t="hist">Versions</button></div>
+    <div class="tabs"><button data-t="insp" class="on">Selected</button><button data-t="room">Room</button><button data-t="cast">Cast</button><button data-t="lib">Library</button><button data-t="chk">Checks</button><button data-t="hist">Versions</button></div>
     <div class="pane on" id="p-insp"></div>
     <div class="pane" id="p-room"></div>
+    <div class="pane" id="p-cast"></div>
     <div class="pane" id="p-lib"></div>
     <div class="pane" id="p-chk"></div>
     <div class="pane" id="p-hist"></div>

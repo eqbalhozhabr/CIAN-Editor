@@ -153,7 +153,7 @@
       if (fullPanels !== false) { renderInsp(); renderChecks(c); renderState(); }
       $('momentL').hidden = !(S.room === sceneId && (CASE.moments || []).length); $('onlyL').hidden = $('momentL').hidden; if ($('onlyL').hidden) S.only = false;
       const u = new URLSearchParams({ case: slug, room: S.room }); history.replaceState(null, '', '?' + u);
-      if (fullPanels !== false) { renderCases(slug); if (S.tab === 'lib') fillLib(); if (S.tab === 'room') renderRoomTab(); }
+      if (fullPanels !== false) { renderCases(slug); if (S.tab === 'lib') fillLib(); if (S.tab === 'room') renderRoomTab(); if (S.tab === 'cast') renderCastTab(); }
     }
     $('cases').addEventListener('click', (e) => {   // a room of this case switches in place; a room of another case is a plain link (a new page load)
       const a = e.target.closest('.rooms a'), el = a && a.closest('.case');
@@ -296,7 +296,7 @@
             <div class="row"><label>cell x,y</label><input type="number" step="0.05" data-f="cx" value="${+o.x.toFixed(3)}"><input type="number" step="0.05" data-f="cy" value="${+o.y.toFixed(3)}"></div>
             <div class="row"><label>size</label><input type="number" step="0.05" min="0.1" data-f="fw" value="${+o.w.toFixed(3)}" ${locked ? 'disabled' : ''}><input type="number" step="0.05" min="0.1" data-f="fd" value="${+o.d.toFixed(3)}" ${locked ? 'disabled' : ''}></div>
             <div class="row"><button data-a="rot" ${NUT_LIBRARY.rotInfo(origType(o), [o.w, o.d]) ? '' : 'disabled title="This object only looks one way"'}>Rotate (R)</button><button data-a="del" ${locked ? 'disabled' : ''}>Delete</button></div>
-            <h3>Look</h3>`;
+            <h3>Look</h3>${o.t === 'npc' && hasCast() && ed().cast.characters().some((c) => c.npc === o.hot) ? '<div class="row"><button data-a="tocast">Edit this person in Cast&hellip;</button></div><div class="note">A person\'s look (clothes, hair, face) is edited once in the Cast tab and reaches the small and big portraits too.</div>' : ''}`;
           if (locked) h += '<div class="note">The look of a locked object is fixed: the game draws its zoom view and puzzle to match it.</div>';
           else {
             const lk = (rm.objects.find((x) => x.id === o.id) || {}).look;
@@ -354,7 +354,8 @@
     }
     function act(a, data) {
       const sel = S.sel;
-      if (a === 'rot') mutate((E) => E.rotate(S.room, sel.id));
+      if (a === 'tocast') { const o = selObj(), c = o && ed().cast.characters().find((x) => x.npc === o.hot); if (c) { S.castId = c.id; S.castView = 'all'; setTab('cast'); } }
+      else if (a === 'rot') mutate((E) => E.rotate(S.room, sel.id));
       else if (a === 'del') { mutate((E) => E.remove(S.room, sel.id)); S.sel = null; render(); }
       else if (a === 'restore') mutate((E) => E.restore(S.room, data.id));
       else if (a === 'reset') mutate((E) => (sel.kind === 'wall' ? E.lookWall(S.room, sel.id, null) : E.look(S.room, sel.id, null)), sel.kind === 'wall');
@@ -399,6 +400,75 @@
       for (const c of el.querySelectorAll('input[data-c]')) c.onchange = () => mutate((E) => E.setRoom(S.room, { pal: { [c.dataset.c]: c.value } }), true);
       for (const b of el.querySelectorAll('button[data-cr]')) b.onclick = () => mutate((E) => E.setRoom(S.room, { pal: { [b.dataset.cr]: null } }), true);
       el.querySelector('[data-a=resetroom]').onclick = () => mutate((E) => { const r = (doc.rooms[S.room] || {}).room || {}; return E.setRoom(S.room, { floor: null, wallL: null, wallR: null, pal: Object.fromEntries(Object.keys(r.pal || {}).map((k) => [k, null])) }); });   // (the size has its own button)
+    }
+
+
+    /* ---------- the Cast tab: one record per person, three views (small portrait, figure in the rooms, big portrait) ---------- */
+    const hasCast = () => typeof NUT_CAST !== 'undefined' && !!ed().cast;
+    const CAST_VIEWS = [['all', 'All views'], ['small', 'Small portrait'], ['room', 'In the rooms'], ['big', 'Big portrait']];
+    const CAST_MOODS = ['normal', 'guarded', 'shaken', 'thinking', 'grim', 'sad', 'kind', 'proud'];
+    const castOv = new Set();   // "id:view" a view whose override switch is on (an override that exists in the file switches it on by itself)
+    function castThumb(cv, k, spec, mood, scale) {
+      try {
+        if (k === 'small') { drawPortrait(cv, spec); }
+        else if (k === 'big') { drawBigPortrait(cv, spec, mood || 'normal'); }
+        else { const t = NUT_LIBRARY.thumb('npc', { w: 0.7, d: 0.7, props: { look: spec } }); if (t) drawRGBA(cv, t.rgba, t.w, t.h); }
+        cv.style.width = cv.width * scale + 'px'; cv.style.height = cv.height * scale + 'px';
+      } catch (e) { /* a person that cannot be drawn here: an empty frame */ }
+    }
+    function renderCastTab() {
+      const el = $('p-cast');
+      if (!hasCast()) { el.innerHTML = '<div class="note">This build of the game has no character editor yet.</div>'; return; }
+      const ops = ed().cast, chars = ops.characters();
+      if (!chars.length) { el.innerHTML = '<div class="note">This case has no people.</div>'; return; }
+      if (!S.castId || !chars.some((c) => c.id === S.castId)) S.castId = chars[0].id;
+      const ch = chars.find((c) => c.id === S.castId), rec = ops.get(ch.id) || {}, shows = { small: ch.small, big: ch.big, room: ch.stands.length > 0 };
+      if (!S.castView || (S.castView !== 'all' && !shows[S.castView])) S.castView = 'all';
+      const view = S.castView, vk = ch.id + ':' + view, ovOn = view !== 'all' && (castOv.has(vk) || !!(rec.views && rec.views[view] && Object.keys(rec.views[view]).length)), editable = view === 'all' || ovOn;
+      const sp = NUT_CAST.specs(ch.id, ROOMS, CASE, doc), V = view === 'all' ? null : view;
+      const hex = (v) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v.toLowerCase() : '#888888');
+      const fields = Object.entries(NUT_CAST.FIELDS).filter(([, f]) => (view === 'all' ? f.views.some((v) => shows[v]) : f.views.includes(view)));
+      const tag = (f) => ['small', 'room', 'big'].map((v, i) => `<i class="vt ${f.views.includes(v) && shows[v] ? 'on' : ''}" title="${['small portrait', 'in the rooms', 'big portrait'][i]}">${'SRB'[i]}</i>`).join('');
+      const row = ([k, f]) => {
+        const v = ops.effective(ch.id, k, V), shared = !!(rec.fields && k in rec.fields), mine = V ? ops.overridden(ch.id, k, V) : false;
+        const where = !V ? Object.keys(rec.views || {}).filter((w) => rec.views[w] && k in rec.views[w]) : [];
+        const dis = editable ? '' : ' disabled';
+        let ctl;
+        if (f.kind === 'color') ctl = `<input type="color" data-f="${k}" value="${hex(v)}"${dis}>`;
+        else if (f.kind === 'optcolor') ctl = `<input type="checkbox" data-o="${k}" ${v ? 'checked' : ''}${dis} title="on / off"><input type="color" data-f="${k}" value="${hex(v || ops.generator(ch.id, k, V))}"${dis && ' disabled'}${v ? '' : ' disabled'}>`;
+        else if (f.kind === 'bool') ctl = `<input type="checkbox" data-f="${k}" ${v ? 'checked' : ''}${dis}>`;
+        else ctl = `<select data-f="${k}"${dis}>${f.values.map((o) => `<option value="${o}"${o === v ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+        const marks = (mine ? `<button class="mini" data-share="${k}" title="Give this to every view">share</button><button class="mini" data-clr="${k}" title="Back to the shared value">↩</button>` : '') + (!V && shared ? `<button class="mini" data-clr="${k}" title="Back to what the case has">↩</button>` : '');
+        return `<div class="row crow${mine ? ' mine' : shared && !V ? ' edited' : ''}"><label>${f.label}</label>${ctl}${marks}<span class="vts">${tag(f)}</span>${where.length ? `<span class="note">own in ${where.join(', ')}</span>` : ''}</div>`;
+      };
+      const figs = chars.filter((c) => c.kind === 'figure');
+      el.innerHTML = `<h3>People</h3>
+        <div class="people">${chars.map((c) => `<button class="pbtn${c.id === ch.id ? ' on' : ''}" data-cid="${esc(c.id)}" title="${esc(c.id)}"><canvas data-cp="${esc(c.id)}"></canvas><span>${esc(c.id)}</span></button>`).join('')}</div>
+        <h3>${esc(ch.id)} <span class="note">${ch.kind === 'figure' ? 'a figure in the rooms with no portrait' : ch.kind}${ch.stands.length ? ' · stands in ' + esc([...new Set(ch.stands)].join(', ')) : ''}</span></h3>
+        <div class="prevs">${ch.small ? '<figure><canvas id="cpS"></canvas><figcaption>small</figcaption></figure>' : ''}${shows.room ? '<figure><canvas id="cpR"></canvas><figcaption>in the rooms</figcaption></figure>' : ''}${ch.big ? `<figure><canvas id="cpB"></canvas><figcaption><select id="cpM">${CAST_MOODS.map((m) => `<option${m === S.castMood ? ' selected' : ''}>${m}</option>`).join('')}</select></figcaption></figure>` : ''}</div>
+        <div class="row vtabs">${CAST_VIEWS.filter(([v]) => v === 'all' || shows[v]).map(([v, n]) => `<button data-cv="${v}" class="${v === view ? 'on' : ''}">${n}${rec.views && rec.views[v] && Object.keys(rec.views[v]).length ? ' •' : ''}</button>`).join('')}</div>
+        ${view === 'all' ? '<div class="note">Whatever you change here reaches every view that can show it (S small, R rooms, B big: the letters on each line). To change one view only, pick it above and switch on Override.</div>'
+          : `<div class="row"><label><input type="checkbox" id="cOv" ${ovOn ? 'checked' : ''}${rec.views && rec.views[view] && Object.keys(rec.views[view]).length ? ' disabled' : ''}> Override this view</label></div>
+             <div class="note">${ovOn ? 'Changes below belong to this view alone; the other views do not see them. "share" gives one to every view.' : 'Off: this view shows the shared edits. Switch Override on to give it a look of its own.'}</div>`}
+        ${fields.map(row).join('')}
+        ${ch.kind !== 'figure' && figs.length ? `<h3>Figure in the rooms</h3><div class="row"><label>this person is</label><select id="cLink"><option value="">the figure called "${esc(ch.id)}"${ch.stands.length ? '' : ' (none in the rooms)'}</option>${figs.map((f) => `<option value="${esc(f.id)}"${rec.npc === f.id ? ' selected' : ''}>the figure called "${esc(f.id)}"</option>`).join('')}</select></div><div class="note">When the figure in the rooms has another name than the person (a constable who is Brenner), say so here and they become one.</div>` : ''}
+        <div class="row"><button data-a="creset" ${rec.fields || rec.views || rec.npc ? '' : 'disabled'}>Back to what the case has</button>${view !== 'all' && rec.views && rec.views[view] ? '<button data-a="cresetview">Drop this view\'s override</button>' : ''}</div>`;
+      for (const cv of el.querySelectorAll('canvas[data-cp]')) { const c2 = chars.find((c) => c.id === cv.dataset.cp), s2 = NUT_CAST.specs(c2.id, ROOMS, CASE, doc); if (s2.small) castThumb(cv, 'small', s2.small, null, 2); else castThumb(cv, 'room', s2.look || {}, null, 1); }
+      if ($('cpS')) castThumb($('cpS'), 'small', sp.small, null, 4);
+      if ($('cpR')) castThumb($('cpR'), 'room', sp.look || {}, null, 3);
+      if ($('cpB')) castThumb($('cpB'), 'big', sp.big, S.castMood || 'normal', 3);
+      if ($('cpM')) $('cpM').onchange = () => { S.castMood = $('cpM').value; castThumb($('cpB'), 'big', sp.big, S.castMood, 3); };
+      for (const b of el.querySelectorAll('[data-cid]')) b.onclick = () => { S.castId = b.dataset.cid; renderCastTab(); };
+      for (const b of el.querySelectorAll('[data-cv]')) b.onclick = () => { S.castView = b.dataset.cv; renderCastTab(); };
+      if ($('cOv')) $('cOv').onchange = () => { if ($('cOv').checked) castOv.add(vk); else castOv.delete(vk); renderCastTab(); };
+      const put = (k, val) => mutate((E) => E.cast.set(ch.id, k, val, V), true);
+      for (const inp of el.querySelectorAll('[data-f]')) inp.onchange = () => { const k = inp.dataset.f, f = NUT_CAST.FIELDS[k]; put(k, f.kind === 'bool' ? inp.checked : inp.value); };
+      for (const inp of el.querySelectorAll('[data-o]')) inp.onchange = () => { const k = inp.dataset.o, c2 = el.querySelector(`input[type=color][data-f="${k}"]`); put(k, inp.checked ? (c2 ? c2.value : '#888888') : null); };
+      for (const b of el.querySelectorAll('[data-clr]')) b.onclick = () => mutate((E) => E.cast.clear(ch.id, b.dataset.clr, V), true);
+      for (const b of el.querySelectorAll('[data-share]')) b.onclick = () => mutate((E) => E.cast.share(ch.id, b.dataset.share, view), true);
+      if ($('cLink')) $('cLink').onchange = () => mutate((E) => E.cast.link(ch.id, $('cLink').value || null), true);
+      const rs = el.querySelector('[data-a=creset]'); if (rs) rs.onclick = () => { if (confirm('Take every change to ' + ch.id + ' back to what the case has?')) mutate((E) => E.cast.reset(ch.id), true); };
+      const rv = el.querySelector('[data-a=cresetview]'); if (rv) rv.onclick = () => { castOv.delete(vk); mutate((E) => E.cast.resetView(ch.id, view), true); };
     }
 
     /* ---------- the Library tab ---------- */
@@ -596,7 +666,7 @@
     };
 
     /* ---------- the toolbar ---------- */
-    function setTab(t) { S.tab = t; for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.t === t); for (const p of document.querySelectorAll('.pane')) p.classList.toggle('on', p.id === 'p-' + t); if (t === 'lib') renderLib(); if (t === 'hist') renderHist(); if (t === 'room') renderRoomTab(); }
+    function setTab(t) { S.tab = t; for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.t === t); for (const p of document.querySelectorAll('.pane')) p.classList.toggle('on', p.id === 'p-' + t); if (t === 'lib') renderLib(); if (t === 'hist') renderHist(); if (t === 'room') renderRoomTab(); if (t === 'cast') renderCastTab(); }
     for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => setTab(b.dataset.t);
     $('bUndo').onclick = doUndo; $('bRedo').onclick = doRedo;
     $('bRot').onclick = () => { const o = selObj(); if (o) mutate((E) => E.rotate(S.room, o.id)); };

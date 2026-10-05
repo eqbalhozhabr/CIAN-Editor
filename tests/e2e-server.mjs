@@ -80,6 +80,21 @@ await pg.click('.tabs button[data-t=hist]'); await pg.waitForSelector('#p-hist t
 ok((await pg.$$('#p-hist table tr')).length >= 2 && /published/.test(await pg.innerText('#p-hist')), 'the Versions tab lists what is on the server');
 await pg.keyboard.press('Control+z'); // (nothing selected: harmless)
 await API((A) => { A.S.sel = { kind: 'obj', id: 'chair1' }; A.render(); });
+// the cast is published with the layout, and a player's game uses it
+console.log('the cast');
+const cpg = errorsOf(await ctx.newPage()); await cpg.goto(ED + '?case=three-days-after&room=yard'); await cpg.waitForSelector('#p-insp');
+await cpg.click('.tabs button[data-t=cast]'); await cpg.click('[data-cid=emil]');
+await cpg.$eval('input[data-f=skin]', (e) => { e.value = '#a06a4a'; e.dispatchEvent(new Event('change', { bubbles: true })); });
+await cpg.waitForFunction(() => /saved to the server/.test(document.getElementById('state').textContent), null, { timeout: 8000 });
+const cd = await api(cpg, 'GET', 'layout/three-days-after'); ok(cd.status === 200 && cd.data.draft && cd.data.draft.doc.cast && cd.data.draft.doc.cast.emil.fields.skin === '#a06a4a', 'a change to a person is saved on the server with the draft');
+await cpg.click('#bPub'); await cpg.waitForSelector('#dlg[open]'); await cpg.fill('#pLabel', 'Emil, darker'); await cpg.click('#pGo');
+await cpg.waitForFunction(() => /published/.test(document.getElementById('state').textContent), null, { timeout: 8000 });
+const cj = await (await fetch(S.url + '/case-in-a-nutshell/api/layout/three-days-after.js')).text();
+ok(/"cast":\{"emil":/.test(cj) && /#a06a4a/.test(cj), 'Publish puts the cast in what the public endpoint serves');
+const cg = errorsOf(await (await browser.newContext()).newPage()); await cg.goto(S.url + '/case-in-a-nutshell/three-days-after/'); await cg.waitForTimeout(800);
+const seen = await cg.evaluate(() => ({ small: CASE.suspects.find((x) => x.id === 'emil').portrait.skin, source: NUT_LAYOUT.state.source }));
+ok(seen.source === 'published' && seen.small === '#a06a4a', 'a player\'s game draws Emil with the published skin');
+ok(!cg.errors.length && !cpg.errors.length, 'and runs without errors ' + cg.errors.concat(cpg.errors).join(' | '));
 // signing out
 await pg.click('#bOut'); await pg.waitForSelector('#f'); ok(true, 'Sign out brings the sign-in form back');
 ok((await api(pg, 'GET', 'me')).status === 401, 'and the session is over');

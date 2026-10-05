@@ -214,6 +214,52 @@ ok(parsed && parsed.rooms && parsed.sprites && parsed.sprites['my-tree'], 'Publi
 ok((await pg.innerText('#state')).includes('exported'), 'and the page says it was exported, not published');
 await pg.click('.tabs button[data-t=hist]'); ok((await pg.$$('#p-hist table tr')).length >= 1, 'a version was saved');
 ok(!pg.errors.length, `no page errors ${pg.errors.join(' | ')}`);
+
+// the cast: one record per person, three views
+if (manifest.cases.some((c) => c.slug === 'three-days-after')) {
+  console.log('the cast (three-days-after)');
+  const cctx = await browser.newContext({ viewport: { width: 1500, height: 1000 } }), cp = await open(cctx, `${URL0}editor/?case=three-days-after&room=yard`);
+  await cp.waitForSelector('#p-insp');
+  const CA = (fn, ...a2) => cp.evaluate(([f, args]) => new Function('A', 'args', 'return (' + f + ')(A, args)')(window.NUT_EDITOR_API, args), [fn.toString(), a2]);
+  await cp.click('.tabs button[data-t=cast]');
+  const names = await cp.$$eval('#p-cast .pbtn', (b) => b.map((x) => x.dataset.cid));
+  ok(['victim', 'emil', 'brenner', 'lukas', 'margit', 'constable', 'keeper'].every((n) => names.includes(n)), 'the Cast tab lists the suspects, the victim, the other people and the figures with no portrait of their own');
+  await cp.click('[data-cid=brenner]');
+  ok((await painted(cp, 'cpS')) > 0 && (await painted(cp, 'cpB')) > 0, 'the small and the big portrait are drawn');
+  await cp.selectOption('#cLink', 'constable');
+  ok(await CA((A) => A.doc.cast.brenner.npc === 'constable') && !(await cp.$$eval('#p-cast .pbtn', (b) => b.some((x) => x.dataset.cid === 'constable'))), 'Brenner is linked to the constable standing in the yard (no second person)');
+  ok((await painted(cp, 'cpR')) > 0, 'and his figure in the rooms is drawn');
+  const coat0 = await CA((A) => ROOMS.yard.objects.find((o) => o.hot === 'constable').look.coat);
+  await cp.$eval('input[data-f=top]', (e) => { e.value = '#aa2222'; e.dispatchEvent(new Event('change', { bubbles: true })); });
+  const got = await CA((A) => ({ coat: ROOMS.yard.objects.find((o) => o.hot === 'constable').look.coat, small: CASE.people.brenner.portrait.shirt, big: (CASE.people.brenner.portrait.__big || CASE.people.brenner.portrait).shirt, rec: A.doc.cast.brenner.fields.top }));
+  ok(got.coat === '#aa2222' && got.small === '#aa2222' && got.big === '#aa2222' && got.rec === '#aa2222' && coat0 !== '#aa2222', 'one colour change reaches the figure in the room, the small portrait and the big one');
+  await cp.click('[data-cv=room]');
+  ok(await cp.$eval('input[data-f=skin]', (e) => e.disabled), 'a single view is read-only until Override is switched on');
+  await cp.check('#cOv');
+  ok(!(await cp.$eval('input[data-f=skin]', (e) => e.disabled)), 'Override unlocks it');
+  await cp.check('[data-o=hat]');
+  const ov = await CA((A) => ({ rec: A.doc.cast.brenner.views && A.doc.cast.brenner.views.room && A.doc.cast.brenner.views.room.hat, roomHat: ROOMS.yard.objects.find((o) => o.hot === 'constable').look.hat, smallHat: CASE.people.brenner.portrait.hat, bigHat: (CASE.people.brenner.portrait.__big || CASE.people.brenner.portrait).hat }));
+  ok(ov.rec && ov.roomHat === ov.rec && !ov.smallHat && !ov.bigHat, 'an override changes the one view and the other two do not get it');
+  ok(await cp.isVisible('[data-share=hat]'), 'and offers to share it with all views');
+  await cp.click('[data-share=hat]');
+  const sh = await CA((A) => ({ field: A.doc.cast.brenner.fields.hat, none: !(A.doc.cast.brenner.views && A.doc.cast.brenner.views.room && 'hat' in A.doc.cast.brenner.views.room), smallHat: CASE.people.brenner.portrait.hat }));
+  ok(sh.field && sh.none && sh.smallHat === sh.field, 'sharing it gives the hat to every view');
+  await cp.click('[data-cv=big]'); await cp.check('#cOv'); await cp.selectOption('#cpM', 'shaken');
+  ok((await painted(cp, 'cpB')) > 0, 'a mood can be tried on the big portrait');
+  await cp.click('[data-cv=all]');
+  await cp.screenshot({ path: 'out/shots/editor-cast.png' });
+  ok(/"cast": \{\n    "brenner": /.test(await CA((A) => NUT_LAYOUT.format(A.doc))), 'the layout file keeps the cast');
+  await cp.evaluate(() => document.activeElement && document.activeElement.blur());
+  for (let i = 0; i < 12 && await CA((A) => !!A.doc.cast); i++) await cp.keyboard.press('Control+z');
+  ok(await CA((A, a) => !A.doc.cast && ROOMS.yard.objects.find((o) => o.hot === 'constable').look.coat === a[0], coat0), 'Undo takes every change back, the figure included');
+  await CA((A) => { A.S.sel = { kind: 'obj', id: 'constable' }; A.render(); });
+  await cp.click('.tabs button[data-t=insp]');
+  ok(await cp.isVisible('#p-insp [data-a=tocast]'), 'a person selected in the room offers to be edited in Cast');
+  await cp.click('#p-insp [data-a=tocast]');
+  ok(/^constable/i.test(await cp.innerText('#p-cast h3 >> nth=1')), 'and that opens the Cast tab on them');
+  ok(!cp.errors.length, `no page errors ${cp.errors.join(' | ')}`);
+  await cctx.close();
+}
 await browser.close(); server.close();
 console.log(failed ? `\n${failed} failure(s)` : '\neditor ok');
 process.exit(failed ? 1 : 0);
