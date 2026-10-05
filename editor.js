@@ -5,7 +5,7 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const q = new URLSearchParams(location.search);
-  let ASSETS = '../assets/';   // next to the game (this page lives at <game>/editor/), or the editor folder's own ./assets/ when it is self-contained
+  let ASSETS = '../assets/';   // next to the game (this page lives at <game>/editor/); the editor folder's own ./assets/ only when there is no game beside it
   const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const clone = (v) => JSON.parse(JSON.stringify(v));
   const loadScript = (src) => new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('Could not load ' + src)); document.head.appendChild(s); });
@@ -46,11 +46,14 @@
     return data;
   };
 
+  /* The cases listed and drawn come from the live game's own build (../assets/, which every game deploy updates), so a case that was added, archived or
+     changed is there as soon as the page is opened. The editor folder's own ./assets/ is a snapshot taken when the editor was last updated: only a fallback
+     (a self-contained copy that has no game beside it). */
   const getManifest = async () => {
-    for (const base of ['assets/', '../assets/']) {
+    for (const base of ['../assets/', 'assets/']) {
       try { const r = await fetch(base + 'editor-manifest.json', { cache: 'no-cache' }); if (r.ok) { ASSETS = base; return await r.json(); } } catch (e) { /* try the next place */ }
     }
-    throw new Error('editor-manifest.json not found (looked in ./assets/ and ../assets/): the game build writes it');
+    throw new Error('editor-manifest.json not found (looked in ../assets/ and ./assets/): the game build writes it');
   };
   getManifest().then(async (man) => {
     MAN = man;

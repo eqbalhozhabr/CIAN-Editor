@@ -38,11 +38,17 @@ ok((await api(a, 'PUT', 'layout/monday-nine/draft', { doc: { version: 1, rooms: 
 await a.fill('#u', S.user); await a.fill('#p', 'not the password at all'); await a.click('#f button');
 await a.waitForSelector('#e:has-text("Wrong")'); ok(true, 'a wrong password is refused with a plain message');
 
+// the game was rebuilt since the editor folder was last updated: a case archived, another one retitled. The editor must show the live game's list.
+const liveManifest = path.join(root, 'case-in-a-nutshell/assets/editor-manifest.json'), man = JSON.parse(fs.readFileSync(liveManifest, 'utf8'));
+man.cases = man.cases.filter((c) => c.slug !== 'night-train').map((c) => (c.slug === 'three-seventeen' ? { ...c, title: 'Three Seventeen (final)' } : c));
+fs.writeFileSync(liveManifest, JSON.stringify(man));
 console.log('signed in');
 const ctx = await browser.newContext({ viewport: { width: 1500, height: 1000 } }), pg = errorsOf(await ctx.newPage());
 await pg.goto(ED + '?case=monday-nine&room=living'); await pg.fill('#u', S.user); await pg.fill('#p', S.password); await pg.click('#f button');
 await pg.waitForSelector('#p-insp table tr');
 ok((await pg.innerText('#who')) === S.user && await pg.isVisible('#bOut'), 'the editor opens and shows who is signed in');
+const listed = await pg.innerText('#cases');
+ok(/Three Seventeen \(final\)/.test(listed) && !/Night Train/.test(listed), 'the case list is the live game\'s (archived case gone, new title there), not the editor folder\'s older copy');
 const API = (fn, ...a2) => pg.evaluate(([f, args]) => new Function('A', 'args', 'return (' + f + ')(A, args)')(window.NUT_EDITOR_API, args), [fn.toString(), a2]);
 // delete a free object: it is saved on the server by itself
 await API((A) => { A.S.sel = { kind: 'obj', id: 'plant10' }; A.render(); });
